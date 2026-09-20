@@ -47,6 +47,7 @@ export function PaymentFormSheet({
   onSubmit: (value: PaymentFormValue) => void;
 }) {
   const identities = view.identities;
+  const lockedPayerId = payment ? payment.createdBy : me.id;
   const [title, setTitle] = useState(payment?.title ?? "");
   const [amount, setAmount] = useState(
     payment ? centsToYuanInput(payment.amountCents) : "",
@@ -164,6 +165,10 @@ export function PaymentFormSheet({
     }
     if (payers.length === 0) {
       setError("至少需要一位付款人");
+      return;
+    }
+    if (!payers.some((payer) => payer.identityId === lockedPayerId)) {
+      setError("付款创建者必须是付款人，不能被移除");
       return;
     }
     for (const payer of payers) {
@@ -290,10 +295,13 @@ export function PaymentFormSheet({
             </button>
           </div>
           <div className="space-y-2">
-            {payers.map((payer, index) => (
+            {payers.map((payer, index) => {
+              const isLocked = payer.identityId === lockedPayerId;
+              return (
               <div key={`${payer.identityId}-${index}`} className="flex items-center gap-2">
                 <Select
                   value={payer.identityId}
+                  disabled={isLocked}
                   onChange={(event) =>
                     setPayers((current) =>
                       current.map((item, i) =>
@@ -301,7 +309,7 @@ export function PaymentFormSheet({
                       ),
                     )
                   }
-                  className="min-w-0 flex-1"
+                  className="min-w-0 flex-1 disabled:bg-gray-100"
                 >
                   {identities.map((identity) => (
                     <option
@@ -328,25 +336,30 @@ export function PaymentFormSheet({
                   placeholder="0.00"
                   className="w-24 text-right"
                 />
-                <button
-                  type="button"
-                  aria-label="移除付款人"
-                  onClick={() =>
-                    setPayers((current) => current.filter((_, i) => i !== index))
-                  }
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100"
-                >
-                  <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
-                    <path
-                      d="M5 5l10 10M15 5L5 15"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </button>
+                {isLocked ? (
+                  <span className="w-9 shrink-0 text-center text-[11px] text-gray-400">创建者</span>
+                ) : (
+                  <button
+                    type="button"
+                    aria-label="移除付款人"
+                    onClick={() =>
+                      setPayers((current) => current.filter((_, i) => i !== index))
+                    }
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100"
+                  >
+                    <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
+                      <path
+                        d="M5 5l10 10M15 5L5 15"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </button>
+                )}
               </div>
-            ))}
+              );
+            })}
             {payers.length === 0 ? (
               <p className="text-sm text-gray-400">还没有付款人，点「添加」选择。</p>
             ) : null}

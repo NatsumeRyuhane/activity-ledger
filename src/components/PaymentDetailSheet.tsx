@@ -5,7 +5,6 @@ import {
   involvementOf,
   parseYuanToCents,
   payerTotal,
-  shareTotal,
   type ActivityView,
   type Payment,
 } from "@shared/domain";
@@ -38,8 +37,7 @@ export function PaymentDetailSheet({
 }) {
   const toast = useToast();
   const [addPayerAmount, setAddPayerAmount] = useState<string | null>(null);
-  const [joinShare, setJoinShare] = useState<string | null>(null);
-  const [editMyShare, setEditMyShare] = useState<string | null>(null);
+  const [editMyPayerAmount, setEditMyPayerAmount] = useState<string | null>(null);
 
   const names = new Map(view.identities.map((identity) => [identity.id, identity]));
   const nameOf = (id: string) => names.get(id)?.name ?? "未知";
@@ -47,27 +45,12 @@ export function PaymentDetailSheet({
   const isManager = payment.createdBy === me.id;
   const issues = issuesOf(payment);
   const remainingPayer = Math.max(0, payment.amountCents - payerTotal(payment));
-  const remainingShare = Math.max(0, payment.amountCents - shareTotal(payment));
   const myShare = shareOf(payment, me.id);
 
   async function exec(command: CommandInput, successMessage = "已更新") {
     try {
       await run(command);
       toast.show(successMessage, "success");
-    } catch (error) {
-      toast.show(error instanceof ApiError ? error.message : "操作失败", "error");
-    }
-  }
-
-  async function leavePayment() {
-    try {
-      if (involvement.isPayer) {
-        await run({ type: "payer.remove", paymentId: payment.id, identityId: me.id });
-      }
-      if (involvement.isParticipant) {
-        await run({ type: "participant.remove", paymentId: payment.id, identityId: me.id });
-      }
-      toast.show("已退出该付款", "success");
     } catch (error) {
       toast.show(error instanceof ApiError ? error.message : "操作失败", "error");
     }
@@ -82,25 +65,27 @@ export function PaymentDetailSheet({
     setAddPayerAmount(null);
     void exec(
       { type: "payer.set", paymentId: payment.id, identityId: me.id, amountCents: cents },
-      "已添加",
+      "已登记",
     );
   }
 
-  function confirmJoin() {
-    const cents = parseYuanToCents(joinShare ?? "");
-    if (payment.splitMode === "custom" && cents === null) {
+  function confirmEditMyPayerAmount() {
+    const cents = parseYuanToCents(editMyPayerAmount ?? "");
+    if (cents === null) {
       toast.show("金额格式不正确", "error");
       return;
     }
-    setJoinShare(null);
+    setEditMyPayerAmount(null);
     void exec(
-      {
-        type: "participant.set",
-        paymentId: payment.id,
-        identityId: me.id,
-        ...(payment.splitMode === "custom" ? { shareCents: cents ?? 0 } : {}),
-      },
-      "已加入",
+      { type: "payer.set", paymentId: payment.id, identityId: me.id, amountCents: cents },
+      "已修改",
+    );
+  }
+
+  function joinAsParticipant() {
+    void exec(
+      { type: "participant.set", paymentId: payment.id, identityId: me.id },
+      payment.splitMode === "custom" ? "已加入，等待创建者设置分摊金额" : "已加入",
     );
   }
 
@@ -126,6 +111,7 @@ export function PaymentDetailSheet({
           </p>
           <p className="mt-0.5 text-xs text-gray-400">
             分摊方式：{payment.splitMode === "equal" ? "均分" : "自定义"}
+            {!isManager ? "（分摊金额由付款创建者设置）" : ""}
           </p>
           {payment.description ? (
             <p className="mt-3 rounded-xl bg-gray-50 p-3 text-sm leading-relaxed text-gray-600">
@@ -147,17 +133,17 @@ export function PaymentDetailSheet({
                 : ""}
               。确认之后，结算才能生成转账方案。
             </p>
-            <div className="mt-3 flex gap-2">
+            <div className="mt-3">
               <Button
                 disabled={busy}
                 onClick={() => void exec({ type: "entry.confirm", paymentId: payment.id }, "已确认")}
               >
                 确认无误
               </Button>
-              <Button variant="secondary" disabled={busy} onClick={() => void leavePayment()}>
-                都不是我
-              </Button>
             </div>
+            <p className="mt-2.5 text-xs leading-relaxed text-amber-700">
+              如果登记有误，请联系付款创建者或活动管理员处理，本人无法自行修改或退出。
+            </p>
           </Card>
         ) : null}
 
@@ -188,51 +174,84 @@ export function PaymentDetailSheet({
           </div>
 
           <div className="space-y-2">
-            {payment.payers.map((payer) => (
-              <div
-                key={payer.identityId}
-                className="flex items-center gap-2 rounded-xl border border-gray-100 px-3 py-2.5"
-              >
-                <IdentityBadge
-                  identity={names.get(payer.identityId) ?? { name: "?", color: "#999" }}
-                  size="sm"
-                />
-                <span className="min-w-0 flex-1 truncate text-sm text-gray-800">
-                  {nameOf(payer.identityId)}
-                  {payer.identityId === me.id ? (
-                    <span className="ml-1 text-xs text-teal-600">我</span>
-                  ) : null}
-                </span>
-                {!payer.confirmed ? <Badge tone="amber">待确认</Badge> : null}
-                <span className="text-sm font-medium text-gray-900">
-                  {formatYuan(payer.amountCents)}
-                </span>
-                {(isManager || payer.identityId === me.id) && !payment.voided ? (
-                  <button
-                    type="button"
-                    aria-label="移除付款人"
-                    disabled={busy}
-                    onClick={() =>
-                      void exec({
-                        type: "payer.remove",
-                        paymentId: payment.id,
-                        identityId: payer.identityId,
-                      })
-                    }
-                    className="ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-gray-300 hover:bg-gray-100 hover:text-gray-500"
-                  >
-                    <svg viewBox="0 0 20 20" fill="none" className="h-3.5 w-3.5">
-                      <path
-                        d="M5 5l10 10M15 5L5 15"
-                        stroke="currentColor"
-                        strokeWidth="2.2"
-                        strokeLinecap="round"
+            {payment.payers.map((payer) => {
+              const isMe = payer.identityId === me.id;
+              return (
+                <div key={payer.identityId}>
+                  <div className="flex items-center gap-2 rounded-xl border border-gray-100 px-3 py-2.5">
+                    <IdentityBadge
+                      identity={names.get(payer.identityId) ?? { name: "?", color: "#999" }}
+                      size="sm"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-sm text-gray-800">
+                      {nameOf(payer.identityId)}
+                      {payer.identityId === payment.createdBy ? (
+                        <span className="ml-1 text-xs text-gray-400">创建者</span>
+                      ) : null}
+                      {isMe ? <span className="ml-1 text-xs text-teal-600">我</span> : null}
+                    </span>
+                    {!payer.confirmed ? <Badge tone="amber">待确认</Badge> : null}
+                    <span className="text-sm font-medium text-gray-900">
+                      {formatYuan(payer.amountCents)}
+                    </span>
+                    {isMe && !payment.voided && editMyPayerAmount === null ? (
+                      <button
+                        type="button"
+                        className="text-xs text-teal-600"
+                        onClick={() => setEditMyPayerAmount(centsToYuanInput(payer.amountCents))}
+                      >
+                        修改
+                      </button>
+                    ) : null}
+                    {isManager && !payment.voided && payer.identityId !== payment.createdBy ? (
+                      <button
+                        type="button"
+                        aria-label="移除付款人"
+                        disabled={busy}
+                        onClick={() =>
+                          void exec({
+                            type: "payer.remove",
+                            paymentId: payment.id,
+                            identityId: payer.identityId,
+                          })
+                        }
+                        className="ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-gray-300 hover:bg-gray-100 hover:text-gray-500"
+                      >
+                        <svg viewBox="0 0 20 20" fill="none" className="h-3.5 w-3.5">
+                          <path
+                            d="M5 5l10 10M15 5L5 15"
+                            stroke="currentColor"
+                            strokeWidth="2.2"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {isMe && editMyPayerAmount !== null ? (
+                    <div className="mt-2 flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50/50 px-3 py-2.5">
+                      <span className="flex-1 text-sm text-gray-700">我支付</span>
+                      <Input
+                        value={editMyPayerAmount}
+                        onChange={(event) => setEditMyPayerAmount(event.target.value)}
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        className="w-24 text-right"
                       />
-                    </svg>
-                  </button>
-                ) : null}
-              </div>
-            ))}
+                      <Button
+                        variant="secondary"
+                        className="shrink-0"
+                        disabled={busy}
+                        onClick={confirmEditMyPayerAmount}
+                      >
+                        保存
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
 
             {addPayerAmount !== null ? (
               <div className="flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50/50 px-3 py-2.5">
@@ -255,13 +274,11 @@ export function PaymentDetailSheet({
         <section>
           <div className="mb-2 flex items-center justify-between">
             <h4 className="text-sm font-medium text-gray-700">参与人</h4>
-            {!payment.voided && !involvement.isParticipant && joinShare === null ? (
+            {!payment.voided && !involvement.isParticipant ? (
               <button
                 type="button"
                 className="text-sm font-medium text-teal-600"
-                onClick={() =>
-                  setJoinShare(payment.splitMode === "custom" ? centsToYuanInput(remainingShare) : "")
-                }
+                onClick={joinAsParticipant}
               >
                 我也参与
               </button>
@@ -288,17 +305,10 @@ export function PaymentDetailSheet({
                   {!participant.confirmed ? <Badge tone="amber">待确认</Badge> : null}
                   {share !== undefined ? (
                     <span className="text-sm font-medium text-gray-900">{formatYuan(share)}</span>
-                  ) : null}
-                  {isMe && payment.splitMode === "custom" && !payment.voided && editMyShare === null ? (
-                    <button
-                      type="button"
-                      className="text-xs text-teal-600"
-                      onClick={() => setEditMyShare(centsToYuanInput(participant.shareCents ?? 0))}
-                    >
-                      修改
-                    </button>
-                  ) : null}
-                  {(isManager || isMe) && !payment.voided ? (
+                  ) : (
+                    <span className="text-xs text-gray-400">待设置</span>
+                  )}
+                  {isManager && !payment.voided ? (
                     <button
                       type="button"
                       aria-label="移除参与人"
@@ -326,59 +336,10 @@ export function PaymentDetailSheet({
               );
             })}
 
-            {joinShare !== null ? (
-              <div className="flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50/50 px-3 py-2.5">
-                <span className="flex-1 text-sm text-gray-700">
-                  {payment.splitMode === "custom" ? "我分摊" : "加入参与人"}
-                </span>
-                {payment.splitMode === "custom" ? (
-                  <Input
-                    value={joinShare}
-                    onChange={(event) => setJoinShare(event.target.value)}
-                    inputMode="decimal"
-                    className="w-24 text-right"
-                  />
-                ) : null}
-                <Button className="shrink-0" disabled={busy} onClick={confirmJoin}>
-                  确定
-                </Button>
-              </div>
-            ) : null}
-
-            {editMyShare !== null ? (
-              <div className="flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2.5">
-                <span className="flex-1 text-sm text-gray-700">我分摊</span>
-                <Input
-                  value={editMyShare}
-                  onChange={(event) => setEditMyShare(event.target.value)}
-                  inputMode="decimal"
-                  className="w-24 text-right"
-                />
-                <Button
-                  variant="secondary"
-                  className="shrink-0"
-                  disabled={busy}
-                  onClick={() => {
-                    const cents = parseYuanToCents(editMyShare);
-                    if (cents === null) {
-                      toast.show("金额格式不正确", "error");
-                      return;
-                    }
-                    setEditMyShare(null);
-                    void exec(
-                      {
-                        type: "participant.set",
-                        paymentId: payment.id,
-                        identityId: me.id,
-                        shareCents: cents,
-                      },
-                      "已修改",
-                    );
-                  }}
-                >
-                  保存
-                </Button>
-              </div>
+            {payment.splitMode === "custom" && payment.participants.length > 0 && !isManager ? (
+              <p className="text-xs leading-relaxed text-gray-400">
+                分摊金额由付款创建者统一设置，如有出入请联系创建者。
+              </p>
             ) : null}
           </div>
         </section>

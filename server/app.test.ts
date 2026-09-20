@@ -227,7 +227,7 @@ describe("payments", () => {
   });
 
 
-  it("lets members enroll themselves but not remove others", async () => {
+  it("lets members enroll themselves but not remove themselves or others", async () => {
     const { activityId, identityId: captain } = await createActivity();
     const alice = await addIdentity(activityId, captain, "Alice");
     const bob = await addIdentity(activityId, captain, "Bob");
@@ -247,12 +247,16 @@ describe("payments", () => {
     });
     expect(removeOther.status).toBe(403);
 
+    // Members cannot walk away on their own, not even from their own entry.
     const removeSelf = await post(`/api/activities/${activityId}/commands`, {
       actorIdentityId: bob,
       command: { type: "participant.remove", paymentId, identityId: bob },
     });
-    expect(removeSelf.status).toBe(200);
-    expect(removeSelf.body.payments[0].participants).toHaveLength(1);
+    expect(removeSelf.status).toBe(403);
+    expect(removeSelf.body.error.code).toBe("not_admin");
+
+    const stillThere = await get(`/api/activities/${activityId}`);
+    expect(stillThere.body.payments[0].participants).toHaveLength(2);
   });
 
   it("lets the payment creator manage enrollment", async () => {
@@ -272,7 +276,7 @@ describe("payments", () => {
     expect(response.body.payments[0].participants.map((p: any) => p.identityId)).toEqual([alice]);
   });
 
-  it("records a custom share when enrolling in custom mode", async () => {
+  it("only lets the payment creator set custom shares", async () => {
     const { activityId, identityId: captain } = await createActivity();
     const alice = await addIdentity(activityId, captain, "Alice");
     const bob = await addIdentity(activityId, captain, "Bob");
@@ -282,14 +286,106 @@ describe("payments", () => {
     });
     const paymentId = (await get(`/api/activities/${activityId}`)).body.payments[0].id;
 
-    const response = await post(`/api/activities/${activityId}/commands`, {
+    // Bob cannot declare his own share.
+    const selfShare = await post(`/api/activities/${activityId}/commands`, {
       actorIdentityId: bob,
       command: { type: "participant.set", paymentId, identityId: bob, shareCents: 10000 },
     });
-    expect(response.status).toBe(200);
-    expect(response.body.settlement.transfers).toEqual([
+    expect(selfShare.status).toBe(403);
+    expect(selfShare.body.error.code).toBe("manager_only");
+
+    // Bob may join without a share; the creator fills it in.
+    const join = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: bob,
+      command: { type: "participant.set", paymentId, identityId: bob },
+    });
+    expect(join.status).toBe(200);
+    // Joining without a share leaves the payment incomplete, so it is kept out
+    // of settlement until the creator assigns the missing amount.
+    expect(join.body.settlement.excludedPaymentIds).toHaveLength(1);
+
+    const assign = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: alice,
+      command: { type: "participant.set", paymentId, identityId: bob, shareCents: 10000 },
+    });
+    expect(assign.status).toBe(200);
+    // The creator's edit needs Bob's confirmation before transfers are computed.
+    expect(assign.body.settlement.canSettle).toBe(false);
+
+    const confirm = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: bob,
+      command: { type: "entry.confirm", paymentId },
+    });
+    expect(confirm.status).toBe(200);
+    expect(confirm.body.settlement.transfers).toEqual([
       { from: bob, to: alice, amountCents: 10000 },
     ]);
+  });
+
+  it("requires the payment creator to stay a payer", async () => {
+    const { activityId, identityId: captain } = await createActivity("hunter2");
+    const alice = await addIdentity(activityId, captain, "Alice");
+    const bob = await addIdentity(activityId, captain, "Bob");
+
+    const missingCreator = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: alice,
+      command: {
+        type: "payment.create",
+        title: "晚餐",
+        amountCents: 30000,
+        splitMode: "equal",
+        payers: [{ identityId: bob, amountCents: 30000 }],
+        participants: [{ identityId: alice }],
+      },
+    });
+    expect(missingCreator.status).toBe(400);
+    expect(missingCreator.body.error.code).toBe("creator_must_pay");
+
+    await createPayment(activityId, alice, { participants: [{ identityId: alice }] });
+    const paymentId = (await get(`/api/activities/${activityId}`)).body.payments[0].id;
+
+    const selfRemove = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: alice,
+      command: { type: "payer.remove", paymentId, identityId: alice },
+    });
+    expect(selfRemove.status).toBe(400);
+
+    const adminRemove = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: captain,
+      adminPassword: "hunter2",
+      command: { type: "payer.remove", paymentId, identityId: alice },
+    });
+    expect(adminRemove.status).toBe(400);
+    expect(adminRemove.body.error.code).toBe("creator_must_pay");
+  });
+
+  it("lets a non-creator payer adjust their own amount only", async () => {
+    const { activityId, identityId: captain } = await createActivity();
+    const alice = await addIdentity(activityId, captain, "Alice");
+    const bob = await addIdentity(activityId, captain, "Bob");
+    await createPayment(activityId, alice, {
+      amountCents: 30000,
+      payers: [
+        { identityId: alice, amountCents: 20000 },
+        { identityId: bob, amountCents: 10000 },
+      ],
+      participants: [{ identityId: alice }, { identityId: bob }],
+    });
+    const paymentId = (await get(`/api/activities/${activityId}`)).body.payments[0].id;
+
+    const own = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: bob,
+      command: { type: "payer.set", paymentId, identityId: bob, amountCents: 12000 },
+    });
+    expect(own.status).toBe(200);
+    const bobPayer = own.body.payments[0].payers.find((p: any) => p.identityId === bob);
+    expect(bobPayer).toMatchObject({ amountCents: 12000, confirmed: true });
+
+    const other = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: bob,
+      command: { type: "payer.set", paymentId, identityId: alice, amountCents: 5000 },
+    });
+    expect(other.status).toBe(403);
   });
 
   it("marks inconsistent payments as excluded from settlement", async () => {

@@ -143,6 +143,9 @@ function buildEvent(
       for (const participant of command.participants) {
         requireIdentity(state, participant.identityId);
       }
+      if (!command.payers.some((payer) => payer.identityId === actorId)) {
+        throw new AppError(400, "creator_must_pay", "付款创建者必须是付款人");
+      }
       const payment: Payment = {
         id: newPaymentId(),
         title: command.title,
@@ -189,10 +192,11 @@ function buildEvent(
     case "payer.set": {
       const payment = requirePayment(state, command.paymentId);
       requireIdentity(state, command.identityId);
-      if (command.identityId !== actorId) {
-        requirePaymentManager(row, state, actor, payment);
-      } else {
+      if (command.identityId === actorId) {
+        // Members may enlist themselves as a payer and adjust their own amount.
         requireMember(state, actorId);
+      } else {
+        requirePaymentManager(row, state, actor, payment);
       }
       return {
         ...base,
@@ -209,10 +213,9 @@ function buildEvent(
     case "payer.remove": {
       const payment = requirePayment(state, command.paymentId);
       requireIdentity(state, command.identityId);
-      if (command.identityId !== actorId) {
-        requirePaymentManager(row, state, actor, payment);
-      } else {
-        requireMember(state, actorId);
+      requirePaymentManager(row, state, actor, payment);
+      if (command.identityId === payment.createdBy) {
+        throw new AppError(400, "creator_must_pay", "付款创建者必须是付款人，无法移除");
       }
       const existing = payment.payers.find((p) => p.identityId === command.identityId);
       if (!existing) throw new AppError(400, "not_a_payer", "该用户不在这笔付款的付款人里");
@@ -226,11 +229,23 @@ function buildEvent(
     case "participant.set": {
       const payment = requirePayment(state, command.paymentId);
       requireIdentity(state, command.identityId);
-      if (command.identityId !== actorId) {
-        requirePaymentManager(row, state, actor, payment);
-      } else {
+      const isSelf = command.identityId === actorId;
+      const existing = payment.participants.find((p) => p.identityId === command.identityId);
+
+      if (isSelf) {
+        // Members may only add themselves; shares and role changes belong to
+        // the payment creator or the activity admin.
         requireMember(state, actorId);
+        if (existing) {
+          throw new AppError(403, "manager_only", "只有付款创建者可以修改参与信息");
+        }
+        if (command.shareCents !== undefined) {
+          throw new AppError(403, "manager_only", "分摊金额由付款创建者设置");
+        }
+      } else {
+        requirePaymentManager(row, state, actor, payment);
       }
+
       return {
         ...base,
         type: "participant.set",
@@ -238,7 +253,7 @@ function buildEvent(
           paymentId: payment.id,
           identityId: command.identityId,
           ...(command.shareCents !== undefined ? { shareCents: command.shareCents } : {}),
-          confirmed: command.identityId === actorId,
+          confirmed: isSelf,
         },
       };
     }
@@ -246,11 +261,7 @@ function buildEvent(
     case "participant.remove": {
       const payment = requirePayment(state, command.paymentId);
       requireIdentity(state, command.identityId);
-      if (command.identityId !== actorId) {
-        requirePaymentManager(row, state, actor, payment);
-      } else {
-        requireMember(state, actorId);
-      }
+      requirePaymentManager(row, state, actor, payment);
       const existing = payment.participants.find((p) => p.identityId === command.identityId);
       if (!existing) throw new AppError(400, "not_a_participant", "该用户不在这笔付款的参与人里");
       return {
