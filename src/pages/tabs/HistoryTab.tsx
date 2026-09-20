@@ -83,8 +83,7 @@ export function HistoryTab({
         <Card className="px-4 py-2">
           {events.map((event, index) => {
             const text = describeEvent(event, { names, paymentTitles });
-            const rollbackAble =
-              canRollback && !event.voided && event.type !== "rollback" && event.seq > 1;
+            const rollbackAble = canRollback && !event.voided && event.type !== "rollback";
             return (
               <div
                 key={event.seq}
