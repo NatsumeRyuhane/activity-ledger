@@ -1,18 +1,18 @@
-import { z } from "zod";
+import { commandSchema, type Command } from "@shared/domain/commands";
 import {
   buildSettlement,
+  type ActivityView,
   effectiveHistory,
   newActivityId,
   newIdentityId,
   newPaymentId,
+  involvementOf,
   pickIdentityColor,
   replay,
   type ActivityMeta,
   type Identity,
-  type LedgerEvent,
   type LedgerState,
   type Payment,
-  type SettlementReport,
 } from "@shared/domain";
 import { hashPassword, verifyPassword } from "./password";
 import type { ActivityRow, EventStore, NewEvent } from "./store";
@@ -27,106 +27,7 @@ export class AppError extends Error {
   }
 }
 
-export interface ActivityView {
-  activity: ActivityMeta;
-  identities: Identity[];
-  payments: Payment[];
-  settlement: SettlementReport;
-  events: (LedgerEvent & { voided: boolean })[];
-  headSeq: number;
-}
 
-const MAX_DATE_LENGTH = 32;
-const dateString = z
-  .string()
-  .max(MAX_DATE_LENGTH)
-  .regex(/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?)?$/, "时间格式不正确");
-
-const paymentPatchSchema = z
-  .object({
-    title: z.string().trim().min(1, "标题不能为空").max(40).optional(),
-    amountCents: z.number().int().min(0).max(100_000_000_000).optional(),
-    paidAt: dateString.nullable().optional(),
-    description: z.string().trim().max(200).nullable().optional(),
-    splitMode: z.enum(["equal", "custom"]).optional(),
-  })
-  .refine((patch) => Object.keys(patch).length > 0, "没有需要修改的内容");
-
-const commandSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("identity.create"),
-    name: z.string().trim().min(1, "请输入名字").max(20, "名字太长了"),
-  }),
-  z.object({
-    type: z.literal("payment.create"),
-    title: z.string().trim().min(1, "请输入标题").max(40, "标题太长了"),
-    amountCents: z.number().int().min(0).max(100_000_000_000),
-    paidAt: dateString.optional(),
-    description: z.string().trim().max(200).optional(),
-    splitMode: z.enum(["equal", "custom"]),
-    payers: z
-      .array(
-        z.object({
-          identityId: z.string().min(1),
-          amountCents: z.number().int().min(0).max(100_000_000_000),
-        }),
-      )
-      .min(1, "至少需要一位付款人")
-      .max(100),
-    participants: z
-      .array(
-        z.object({
-          identityId: z.string().min(1),
-          shareCents: z.number().int().min(0).max(100_000_000_000).optional(),
-        }),
-      )
-      .max(100),
-  }),
-  z.object({
-    type: z.literal("payment.update"),
-    paymentId: z.string().min(1),
-    patch: paymentPatchSchema,
-  }),
-  z.object({ type: z.literal("payment.void"), paymentId: z.string().min(1) }),
-  z.object({
-    type: z.literal("payer.set"),
-    paymentId: z.string().min(1),
-    identityId: z.string().min(1),
-    amountCents: z.number().int().min(0).max(100_000_000_000),
-  }),
-  z.object({
-    type: z.literal("payer.remove"),
-    paymentId: z.string().min(1),
-    identityId: z.string().min(1),
-  }),
-  z.object({
-    type: z.literal("participant.set"),
-    paymentId: z.string().min(1),
-    identityId: z.string().min(1),
-    shareCents: z.number().int().min(0).max(100_000_000_000).optional(),
-  }),
-  z.object({
-    type: z.literal("participant.remove"),
-    paymentId: z.string().min(1),
-    identityId: z.string().min(1),
-  }),
-  z.object({
-    type: z.literal("rollback"),
-    targetSeq: z.number().int().min(1),
-    reason: z.string().trim().max(100).optional(),
-  }),
-  z.object({
-    type: z.literal("settings.update"),
-    name: z.string().trim().min(1).max(30).optional(),
-    description: z.string().trim().max(200).nullable().optional(),
-  }),
-  z.object({
-    type: z.literal("admin.setPassword"),
-    newPassword: z.string().min(4, "密码至少 4 位").max(128),
-  }),
-]);
-
-export type Command = z.infer<typeof commandSchema>;
 
 export interface CreateActivityInput {
   name: string;
@@ -254,12 +155,14 @@ function buildEvent(
         payers: command.payers.map((payer) => ({
           identityId: payer.identityId,
           amountCents: payer.amountCents,
+          confirmed: payer.identityId === actorId,
         })),
         participants: command.participants.map((participant) => ({
           identityId: participant.identityId,
           ...(command.splitMode === "custom"
             ? { shareCents: participant.shareCents ?? 0 }
             : {}),
+          confirmed: participant.identityId === actorId,
         })),
         voided: false,
       };
@@ -298,6 +201,7 @@ function buildEvent(
           paymentId: payment.id,
           identityId: command.identityId,
           amountCents: command.amountCents,
+          confirmed: command.identityId === actorId,
         },
       };
     }
@@ -334,6 +238,7 @@ function buildEvent(
           paymentId: payment.id,
           identityId: command.identityId,
           ...(command.shareCents !== undefined ? { shareCents: command.shareCents } : {}),
+          confirmed: command.identityId === actorId,
         },
       };
     }
@@ -352,6 +257,23 @@ function buildEvent(
         ...base,
         type: "participant.removed",
         payload: { paymentId: payment.id, identityId: command.identityId },
+      };
+    }
+
+    case "entry.confirm": {
+      const payment = requirePayment(state, command.paymentId);
+      requireMember(state, actorId);
+      const { needsConfirmation, isPayer, isParticipant } = involvementOf(payment, actorId);
+      if (!isPayer && !isParticipant) {
+        throw new AppError(400, "not_involved", "你不在这笔付款里");
+      }
+      if (!needsConfirmation) {
+        throw new AppError(400, "already_confirmed", "你的参与已经确认过了");
+      }
+      return {
+        ...base,
+        type: "entry.confirmed",
+        payload: { paymentId: payment.id, identityId: actorId },
       };
     }
 

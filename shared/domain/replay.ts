@@ -92,6 +92,16 @@ export function fold(events: LedgerEvent[]): LedgerState {
           if (patch.description === null) delete payment.description;
           else payment.description = patch.description;
         }
+        // Changing the total or the split mode invalidates previous
+        // confirmations of everyone but the person who made the change.
+        if (patch.amountCents !== undefined || patch.splitMode !== undefined) {
+          for (const payer of payment.payers) {
+            if (payer.identityId !== event.actorIdentityId) payer.confirmed = false;
+          }
+          for (const participant of payment.participants) {
+            if (participant.identityId !== event.actorIdentityId) participant.confirmed = false;
+          }
+        }
         break;
       }
 
@@ -107,8 +117,17 @@ export function fold(events: LedgerEvent[]): LedgerState {
         const payment = findPayment(state, payload.paymentId);
         if (!payment) break;
         const existing = payment.payers.find((p) => p.identityId === payload.identityId);
-        if (existing) existing.amountCents = payload.amountCents;
-        else payment.payers.push({ identityId: payload.identityId, amountCents: payload.amountCents });
+        const confirmed = payload.confirmed ?? existing?.confirmed ?? false;
+        if (existing) {
+          existing.amountCents = payload.amountCents;
+          existing.confirmed = confirmed;
+        } else {
+          payment.payers.push({
+            identityId: payload.identityId,
+            amountCents: payload.amountCents,
+            confirmed,
+          });
+        }
         break;
       }
 
@@ -125,14 +144,40 @@ export function fold(events: LedgerEvent[]): LedgerState {
         const payment = findPayment(state, payload.paymentId);
         if (!payment) break;
         const existing = payment.participants.find((p) => p.identityId === payload.identityId);
+        const confirmed = payload.confirmed ?? existing?.confirmed ?? false;
         if (payment.splitMode === "custom") {
           const shareCents = payload.shareCents ?? existing?.shareCents ?? 0;
-          if (existing) existing.shareCents = shareCents;
-          else payment.participants.push({ identityId: payload.identityId, shareCents });
+          if (existing) {
+            existing.shareCents = shareCents;
+            existing.confirmed = confirmed;
+          } else {
+            payment.participants.push({
+              identityId: payload.identityId,
+              shareCents,
+              confirmed,
+            });
+          }
         } else if (existing) {
           delete existing.shareCents;
+          existing.confirmed = confirmed;
         } else {
-          payment.participants.push({ identityId: payload.identityId });
+          payment.participants.push({
+            identityId: payload.identityId,
+            confirmed,
+          });
+        }
+        break;
+      }
+
+      case "entry.confirmed": {
+        const payload = event.payload as import("./types").EntryConfirmedPayload;
+        const payment = findPayment(state, payload.paymentId);
+        if (!payment) break;
+        for (const payer of payment.payers) {
+          if (payer.identityId === payload.identityId) payer.confirmed = true;
+        }
+        for (const participant of payment.participants) {
+          if (participant.identityId === payload.identityId) participant.confirmed = true;
         }
         break;
       }
@@ -168,8 +213,8 @@ export function fold(events: LedgerEvent[]): LedgerState {
 function normalizePayment(payment: Payment): Payment {
   return {
     ...payment,
-    payers: payment.payers.map((p) => ({ ...p })),
-    participants: payment.participants.map((p) => ({ ...p })),
+    payers: payment.payers.map((p) => ({ ...p, confirmed: p.confirmed ?? false })),
+    participants: payment.participants.map((p) => ({ ...p, confirmed: p.confirmed ?? false })),
     voided: payment.voided ?? false,
   };
 }

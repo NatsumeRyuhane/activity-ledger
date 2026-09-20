@@ -24,11 +24,13 @@ export interface Identity {
 export interface Payer {
   identityId: IdentityId;
   amountCents: number;
+  confirmed: boolean;
 }
 
 export interface Participant {
   identityId: IdentityId;
   shareCents?: number;
+  confirmed: boolean;
 }
 
 export interface Payment {
@@ -61,6 +63,7 @@ export type LedgerEventType =
   | "payer.removed"
   | "participant.set"
   | "participant.removed"
+  | "entry.confirmed"
   | "settings.updated"
   | "settings.password_changed"
   | "rollback";
@@ -99,6 +102,7 @@ export interface PayerSetPayload {
   paymentId: PaymentId;
   identityId: IdentityId;
   amountCents: number;
+  confirmed: boolean;
 }
 
 export interface PayerRemovedPayload {
@@ -110,9 +114,15 @@ export interface ParticipantSetPayload {
   paymentId: PaymentId;
   identityId: IdentityId;
   shareCents?: number;
+  confirmed: boolean;
 }
 
 export interface ParticipantRemovedPayload {
+  paymentId: PaymentId;
+  identityId: IdentityId;
+}
+
+export interface EntryConfirmedPayload {
   paymentId: PaymentId;
   identityId: IdentityId;
 }
@@ -137,6 +147,7 @@ export type LedgerEventPayload =
   | PayerRemovedPayload
   | ParticipantSetPayload
   | ParticipantRemovedPayload
+  | EntryConfirmedPayload
   | SettingsUpdatedPayload
   | RollbackPayload;
 

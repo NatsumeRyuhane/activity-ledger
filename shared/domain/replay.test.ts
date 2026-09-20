@@ -13,8 +13,11 @@ function basePayment(overrides: Partial<Payment> = {}): Payment {
     splitMode: "equal",
     createdBy: ALICE,
     createdAt: 3,
-    payers: [{ identityId: ALICE, amountCents: 30000 }],
-    participants: [{ identityId: ALICE }, { identityId: BOB }],
+    payers: [{ identityId: ALICE, amountCents: 30000, confirmed: true }],
+    participants: [
+      { identityId: ALICE, confirmed: true },
+      { identityId: BOB, confirmed: true },
+    ],
     voided: false,
     ...overrides,
   };
@@ -57,14 +60,14 @@ function events(): LedgerEvent[] {
       type: "participant.set",
       actorIdentityId: BOB,
       createdAt: 4,
-      payload: { paymentId: "pay-1", identityId: BOB },
+      payload: { paymentId: "pay-1", identityId: BOB, confirmed: true },
     },
     {
       seq: 5,
       type: "payer.set",
       actorIdentityId: ALICE,
       createdAt: 5,
-      payload: { paymentId: "pay-1", identityId: BOB, amountCents: 10000 },
+      payload: { paymentId: "pay-1", identityId: BOB, amountCents: 10000, confirmed: true },
     },
   ];
 }
@@ -76,8 +79,8 @@ describe("replay", () => {
     expect(state.identities.map((i) => i.name)).toEqual(["队长", "Alice"]);
     expect(state.payments).toHaveLength(1);
     expect(state.payments[0].payers).toEqual([
-      { identityId: ALICE, amountCents: 30000 },
-      { identityId: BOB, amountCents: 10000 },
+      { identityId: ALICE, amountCents: 30000, confirmed: true },
+      { identityId: BOB, amountCents: 10000, confirmed: true },
     ]);
   });
 
@@ -96,7 +99,9 @@ describe("replay", () => {
     expect([...voided].sort()).toEqual([4, 5]);
 
     const state = replay(log);
-    expect(state.payments[0].payers).toEqual([{ identityId: ALICE, amountCents: 30000 }]);
+    expect(state.payments[0].payers).toEqual([
+      { identityId: ALICE, amountCents: 30000, confirmed: true },
+    ]);
     expect(state.identities).toHaveLength(2);
   });
 
@@ -109,7 +114,7 @@ describe("replay", () => {
         type: "participant.set",
         actorIdentityId: BOB,
         createdAt: 7,
-        payload: { paymentId: "pay-1", identityId: BOB },
+        payload: { paymentId: "pay-1", identityId: BOB, confirmed: true },
       },
     );
 
@@ -135,7 +140,9 @@ describe("replay", () => {
 
     const state = replay(log);
     // 4 and 5 stay voided even though targetSeq 5 is beyond them.
-    expect(state.payments[0].payers).toEqual([{ identityId: ALICE, amountCents: 30000 }]);
+    expect(state.payments[0].payers).toEqual([
+      { identityId: ALICE, amountCents: 30000, confirmed: true },
+    ]);
     const { effective, voided } = effectiveHistory(log);
     expect(effective.map((e) => e.seq)).toEqual([1, 2, 3]);
     expect([...voided].sort()).toEqual([4, 5, 7]);

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildSettlement,
   computeShares,
+  involvementOf,
   validatePayment,
   type Payment,
 } from "@shared/domain";
@@ -14,8 +15,12 @@ function payment(overrides: Partial<Payment> = {}): Payment {
     splitMode: "equal",
     createdBy: "alice",
     createdAt: 1,
-    payers: [{ identityId: "alice", amountCents: 30000 }],
-    participants: [{ identityId: "alice" }, { identityId: "bob" }, { identityId: "carol" }],
+    payers: [{ identityId: "alice", amountCents: 30000, confirmed: true }],
+    participants: [
+      { identityId: "alice", confirmed: true },
+      { identityId: "bob", confirmed: true },
+      { identityId: "carol", confirmed: true },
+    ],
     voided: false,
     ...overrides,
   };
@@ -31,7 +36,10 @@ describe("computeShares", () => {
 
   it("distributes remainder cents deterministically", () => {
     const shares = computeShares(
-      payment({ amountCents: 10001, payers: [{ identityId: "alice", amountCents: 10001 }] }),
+      payment({
+        amountCents: 10001,
+        payers: [{ identityId: "alice", amountCents: 10001, confirmed: true }],
+      }),
     );
     expect([...shares.values()].reduce((a, b) => a + b, 0)).toBe(10001);
     expect([...shares.values()].sort((a, b) => b - a)).toEqual([3334, 3334, 3333]);
@@ -45,8 +53,8 @@ describe("computeShares", () => {
       payment({
         splitMode: "custom",
         participants: [
-          { identityId: "alice", shareCents: 20000 },
-          { identityId: "bob", shareCents: 10000 },
+          { identityId: "alice", shareCents: 20000, confirmed: true },
+          { identityId: "bob", shareCents: 10000, confirmed: true },
         ],
       }),
     );
@@ -61,7 +69,9 @@ describe("validatePayment", () => {
   });
 
   it("flags mismatched payer totals", () => {
-    const issues = validatePayment(payment({ payers: [{ identityId: "alice", amountCents: 20000 }] }));
+    const issues = validatePayment(
+      payment({ payers: [{ identityId: "alice", amountCents: 20000, confirmed: true }] }),
+    );
     expect(issues).toContain("payer-sum-mismatch");
   });
 
@@ -70,8 +80,8 @@ describe("validatePayment", () => {
       payment({
         splitMode: "custom",
         participants: [
-          { identityId: "alice", shareCents: 10000 },
-          { identityId: "bob", shareCents: 10000 },
+          { identityId: "alice", shareCents: 10000, confirmed: true },
+          { identityId: "bob", shareCents: 10000, confirmed: true },
         ],
       }),
     );
@@ -104,14 +114,20 @@ describe("buildSettlement", () => {
       payment({
         id: "p1",
         amountCents: 20000,
-        payers: [{ identityId: "alice", amountCents: 20000 }],
-        participants: [{ identityId: "alice" }, { identityId: "bob" }],
+        payers: [{ identityId: "alice", amountCents: 20000, confirmed: true }],
+        participants: [
+          { identityId: "alice", confirmed: true },
+          { identityId: "bob", confirmed: true },
+        ],
       }),
       payment({
         id: "p2",
         amountCents: 20000,
-        payers: [{ identityId: "bob", amountCents: 20000 }],
-        participants: [{ identityId: "bob" }, { identityId: "carol" }],
+        payers: [{ identityId: "bob", amountCents: 20000, confirmed: true }],
+        participants: [
+          { identityId: "bob", confirmed: true },
+          { identityId: "carol", confirmed: true },
+        ],
       }),
     ]);
 
@@ -135,23 +151,23 @@ describe("buildSettlement", () => {
       payment({
         id: "p1",
         amountCents: 40000,
-        payers: [{ identityId: "alice", amountCents: 40000 }],
+        payers: [{ identityId: "alice", amountCents: 40000, confirmed: true }],
         participants: [
-          { identityId: "alice" },
-          { identityId: "bob" },
-          { identityId: "carol" },
-          { identityId: "dave" },
+          { identityId: "alice", confirmed: true },
+          { identityId: "bob", confirmed: true },
+          { identityId: "carol", confirmed: true },
+          { identityId: "dave", confirmed: true },
         ],
       }),
       payment({
         id: "p2",
         amountCents: 40000,
-        payers: [{ identityId: "dave", amountCents: 40000 }],
+        payers: [{ identityId: "dave", amountCents: 40000, confirmed: true }],
         participants: [
-          { identityId: "alice" },
-          { identityId: "bob" },
-          { identityId: "carol" },
-          { identityId: "dave" },
+          { identityId: "alice", confirmed: true },
+          { identityId: "bob", confirmed: true },
+          { identityId: "carol", confirmed: true },
+          { identityId: "dave", confirmed: true },
         ],
       }),
     ]);
@@ -164,5 +180,72 @@ describe("buildSettlement", () => {
       settled.set(transfer.to, (settled.get(transfer.to) ?? 0) - transfer.amountCents);
     }
     expect([...settled.values()].every((v) => v === 0)).toBe(true);
+  });
+
+  it("blocks transfers while any entry is unconfirmed", () => {
+    const report = buildSettlement([
+      payment({
+        participants: [
+          { identityId: "alice", confirmed: true },
+          { identityId: "bob", confirmed: true },
+          { identityId: "carol", confirmed: false },
+        ],
+      }),
+    ]);
+
+    expect(report.canSettle).toBe(false);
+    expect(report.transfers).toEqual([]);
+    expect(report.unconfirmed).toEqual([
+      { identityId: "carol", paymentId: "pay-1", role: "participant" },
+    ]);
+    // Balances are still shown so people can see where they stand.
+    expect(report.balances.find((b) => b.identityId === "carol")?.balanceCents).toBe(-10000);
+  });
+
+  it("reports unconfirmed payers too", () => {
+    const report = buildSettlement([
+      payment({
+        payers: [{ identityId: "alice", amountCents: 30000, confirmed: false }],
+      }),
+    ]);
+    expect(report.canSettle).toBe(false);
+    expect(report.unconfirmed).toContainEqual({
+      identityId: "alice",
+      paymentId: "pay-1",
+      role: "payer",
+    });
+  });
+
+  it("ignores unconfirmed entries of voided payments", () => {
+    const report = buildSettlement([
+      payment({
+        voided: true,
+        participants: [
+          { identityId: "alice", confirmed: true },
+          { identityId: "bob", confirmed: false },
+        ],
+      }),
+    ]);
+    expect(report.canSettle).toBe(true);
+    expect(report.unconfirmed).toEqual([]);
+  });
+
+  it("describes a person's involvement in a payment", () => {
+    const unpaid = involvementOf(payment(), "bob");
+    expect(unpaid).toMatchObject({ isPayer: false, isParticipant: true, needsConfirmation: false });
+
+    const pending = involvementOf(
+      payment({
+        participants: [
+          { identityId: "alice", confirmed: true },
+          { identityId: "bob", confirmed: false },
+        ],
+      }),
+      "bob",
+    );
+    expect(pending.needsConfirmation).toBe(true);
+
+    const none = involvementOf(payment(), "stranger");
+    expect(none).toMatchObject({ isPayer: false, isParticipant: false });
   });
 });

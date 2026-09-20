@@ -103,7 +103,7 @@ describe("activities", () => {
 });
 
 describe("payments", () => {
-  it("creates payments, enrolls participants and computes the settlement", async () => {
+  it("creates payments, waits for confirmations and then settles", async () => {
     const { activityId, identityId: captain } = await createActivity();
     const alice = await addIdentity(activityId, captain, "Alice");
     const bob = await addIdentity(activityId, captain, "Bob");
@@ -113,14 +113,119 @@ describe("payments", () => {
     });
 
     expect(view.payments).toHaveLength(1);
-    expect(view.settlement.balances).toEqual([
+    // Alice confirmed her own commit; Bob has not confirmed his participation yet.
+    expect(view.settlement.canSettle).toBe(false);
+    expect(view.settlement.transfers).toEqual([]);
+    expect(view.settlement.unconfirmed).toEqual([
+      { identityId: bob, paymentId: view.payments[0].id, role: "participant" },
+    ]);
+
+    const confirm = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: bob,
+      command: { type: "entry.confirm", paymentId: view.payments[0].id },
+    });
+    expect(confirm.status).toBe(200);
+    expect(confirm.body.settlement.canSettle).toBe(true);
+    expect(confirm.body.settlement.balances).toEqual([
       { identityId: alice, balanceCents: 15000 },
       { identityId: bob, balanceCents: -15000 },
     ]);
-    expect(view.settlement.transfers).toEqual([
+    expect(confirm.body.settlement.transfers).toEqual([
       { from: bob, to: alice, amountCents: 15000 },
     ]);
   });
+
+  it("treats manager edits as needing re-confirmation", async () => {
+    const { activityId, identityId: captain } = await createActivity();
+    const alice = await addIdentity(activityId, captain, "Alice");
+    const bob = await addIdentity(activityId, captain, "Bob");
+    const view = await createPayment(activityId, alice, {
+      participants: [{ identityId: alice }, { identityId: bob }],
+    });
+    const paymentId = view.payments[0].id;
+
+    await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: bob,
+      command: { type: "entry.confirm", paymentId },
+    });
+
+    const edited = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: alice,
+      command: {
+        type: "participant.set",
+        paymentId,
+        identityId: bob,
+      },
+    });
+    expect(edited.status).toBe(200);
+    const bobParticipant = edited.body.payments[0].participants.find(
+      (p: any) => p.identityId === bob,
+    );
+    expect(bobParticipant.confirmed).toBe(false);
+    expect(edited.body.settlement.canSettle).toBe(false);
+
+    const again = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: bob,
+      command: { type: "entry.confirm", paymentId },
+    });
+    expect(again.status).toBe(200);
+    expect(again.body.settlement.canSettle).toBe(true);
+  });
+
+  it("resets other confirmations when the total changes", async () => {
+    const { activityId, identityId: captain } = await createActivity();
+    const alice = await addIdentity(activityId, captain, "Alice");
+    const bob = await addIdentity(activityId, captain, "Bob");
+    const view = await createPayment(activityId, alice, {
+      participants: [{ identityId: alice }, { identityId: bob }],
+    });
+    const paymentId = view.payments[0].id;
+
+    await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: bob,
+      command: { type: "entry.confirm", paymentId },
+    });
+
+    const updated = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: alice,
+      command: { type: "payment.update", paymentId, patch: { amountCents: 40000 } },
+    });
+    expect(updated.status).toBe(200);
+    expect(
+      updated.body.payments[0].participants.find((p: any) => p.identityId === bob).confirmed,
+    ).toBe(false);
+    expect(
+      updated.body.payments[0].participants.find((p: any) => p.identityId === alice).confirmed,
+    ).toBe(true);
+  });
+
+  it("refuses to confirm for someone else", async () => {
+    const { activityId, identityId: captain } = await createActivity();
+    const alice = await addIdentity(activityId, captain, "Alice");
+    const bob = await addIdentity(activityId, captain, "Bob");
+    const view = await createPayment(activityId, alice, {
+      participants: [{ identityId: alice }, { identityId: bob }],
+    });
+    const paymentId = view.payments[0].id;
+
+    const response = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: bob,
+      command: { type: "entry.confirm", paymentId },
+    });
+    expect(response.status).toBe(200);
+    // Bob only ever confirms himself; Alice's entry stays as it was.
+    expect(
+      response.body.payments[0].participants.find((p: any) => p.identityId === alice).confirmed,
+    ).toBe(true);
+
+    const wrong = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: captain,
+      command: { type: "entry.confirm", paymentId },
+    });
+    expect(wrong.status).toBe(400);
+    expect(wrong.body.error.code).toBe("not_involved");
+  });
+
 
   it("lets members enroll themselves but not remove others", async () => {
     const { activityId, identityId: captain } = await createActivity();
