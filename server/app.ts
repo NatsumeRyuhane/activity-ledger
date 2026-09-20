@@ -7,6 +7,7 @@ import {
   createActivity,
   createIdentity,
   getActivityView,
+  verifyAdminPassword,
 } from "./service";
 import type { EventStore } from "./store";
 
@@ -33,6 +34,14 @@ export function createApp(store: EventStore) {
       const body = await readJson(c.req.raw);
       const result = createIdentity(store, c.req.param("id"), String(body.name ?? ""));
       return c.json(result, 201);
+    });
+  });
+
+  app.post("/api/activities/:id/admin/verify", async (c) => {
+    return run(c, async () => {
+      const body = await readJson(c.req.raw);
+      verifyAdminPassword(store, c.req.param("id"), String(body.password ?? ""));
+      return c.json({ ok: true });
     });
   });
 

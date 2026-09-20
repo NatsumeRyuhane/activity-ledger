@@ -48,6 +48,13 @@ export function createActivity(input: {
   });
 }
 
+export async function verifyAdminPassword(activityId: string, password: string): Promise<void> {
+  await request<{ ok: boolean }>(`/api/activities/${activityId}/admin/verify`, {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
+}
+
 export function createIdentity(activityId: string, name: string) {
   return request<{ view: ActivityView; identityId: string }>(
     `/api/activities/${activityId}/identities`,

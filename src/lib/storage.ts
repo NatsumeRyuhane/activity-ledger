@@ -86,11 +86,3 @@ export function saveAdminPassword(activityId: string, password: string): void {
     // ignore
   }
 }
-
-export function clearAdminPassword(activityId: string): void {
-  try {
-    sessionStorage.removeItem(adminKey(activityId));
-  } catch {
-    // ignore
-  }
-}

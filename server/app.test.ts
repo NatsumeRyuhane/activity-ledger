@@ -762,28 +762,22 @@ describe("admin", () => {
     expect(change.body.activity.hasPassword).toBe(true);
   });
 
-  it("verifies the admin password for identity switching", async () => {
-    const { activityId, identityId: captain } = await createActivity("hunter2");
+  it("verifies the admin password without acting as the creator", async () => {
+    const { activityId } = await createActivity("hunter2");
 
-    const wrong = await post(`/api/activities/${activityId}/commands`, {
-      actorIdentityId: captain,
-      adminPassword: "nope",
-      command: { type: "admin.verify" },
-    });
+    const wrong = await post(`/api/activities/${activityId}/admin/verify`, { password: "nope" });
     expect(wrong.status).toBe(403);
     expect(wrong.body.error.code).toBe("wrong_password");
 
-    const right = await post(`/api/activities/${activityId}/commands`, {
-      actorIdentityId: captain,
-      adminPassword: "hunter2",
-      command: { type: "admin.verify" },
-    });
+    // Anyone holding the link may check the password before adopting the admin
+    // identity; a correct password is what gates the switch.
+    const right = await post(`/api/activities/${activityId}/admin/verify`, { password: "hunter2" });
     expect(right.status).toBe(200);
+    expect(right.body.ok).toBe(true);
 
-    const noPasswordSet = await createActivity();
-    const fallback = await post(`/api/activities/${noPasswordSet.activityId}/commands`, {
-      actorIdentityId: noPasswordSet.identityId,
-      command: { type: "admin.verify" },
+    const noPassword = await createActivity();
+    const fallback = await post(`/api/activities/${noPassword.activityId}/admin/verify`, {
+      password: "whatever",
     });
     expect(fallback.status).toBe(403);
     expect(fallback.body.error.code).toBe("no_password");

@@ -16,6 +16,7 @@ export function IdentitySheet({
   adminPassword,
   busy,
   run,
+  verifyPassword,
   onUnlocked,
   onSelect,
   onCreate,
@@ -29,6 +30,7 @@ export function IdentitySheet({
   adminPassword: string | null;
   busy?: boolean;
   run: RunCommand;
+  verifyPassword: (password: string) => Promise<void>;
   onUnlocked: (password: string) => void;
   onSelect: (identityId: string) => void;
   onCreate: (name: string) => void;
@@ -61,7 +63,7 @@ export function IdentitySheet({
     }
     setVerifying(true);
     try {
-      await run({ type: "admin.verify" }, { adminPassword: password });
+      await verifyPassword(password);
       onUnlocked(password);
       onSelect(pendingAdmin.id);
       toast.show("管理员密码已验证", "success");

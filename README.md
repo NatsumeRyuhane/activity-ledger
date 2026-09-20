@@ -88,6 +88,21 @@ pnpm start      # http://localhost:3000
 
 管理员密码单独存放在 `activities.admin_password_hash`（scrypt 加盐哈希），不属于事件流，因此回滚不会影响密码。
 
+## 部署
+
+单机部署走 Docker Compose（应用容器 + nginx 容器，数据在宿主机 `./data`）：
+
+```bash
+git clone <仓库地址> ledger && cd ledger
+./deploy/manage.sh start      # 构建并启动，默认 http://127.0.0.1:8080
+./deploy/manage.sh status     # 容器状态 + 健康检查
+./deploy/manage.sh upgrade    # 从 GitHub 拉取最新代码，重建镜像并自动重启
+./deploy/manage.sh stop       # 停止（数据保留）
+```
+
+配置在 `.env`（由 `.env.example` 生成）：`HTTP_PORT`、`SERVER_NAME`、`LEDGER_BRANCH`。
+nginx 模板见 `deploy/nginx.conf.template`，详细说明（HTTPS、备份、宿主机 nginx、跨架构构建）见 [docs/DEPLOY.md](docs/DEPLOY.md)。
+
 ## 开发
 
 ```bash

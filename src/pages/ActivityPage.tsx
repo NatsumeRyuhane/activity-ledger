@@ -1,17 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ApiError } from "@/lib/api";
+import { ApiError, verifyAdminPassword } from "@/lib/api";
 import { useActivity } from "@/hooks/useActivity";
 import { UserPill } from "@/components/IdentityBadge";
 import { IdentitySheet } from "@/components/IdentitySheet";
 import { Badge, Button, EmptyState, Spinner } from "@/components/ui";
 import { useToast } from "@/components/toast-context";
-import {
-  clearAdminPassword,
-  loadAdminPassword,
-  rememberActivity,
-  saveAdminPassword,
-} from "@/lib/storage";
+import { loadAdminPassword, rememberActivity, saveAdminPassword } from "@/lib/storage";
 import { PaymentsTab } from "./tabs/PaymentsTab";
 import { SettlementTab } from "./tabs/SettlementTab";
 import { HistoryTab } from "./tabs/HistoryTab";
@@ -75,10 +70,11 @@ export default function ActivityPage() {
     setAdminPassword(password);
   }
 
-  function handleLocked() {
-    clearAdminPassword(id);
-    setAdminPassword(null);
+  async function handleVerifyPassword(password: string) {
+    await verifyAdminPassword(id, password);
   }
+
+
 
   if (status === "loading") {
     return (
@@ -198,8 +194,8 @@ export default function ActivityPage() {
           <AdminTab
             controller={controller}
             adminPassword={adminPassword}
+            verifyPassword={handleVerifyPassword}
             onUnlocked={handleUnlocked}
-            onLocked={handleLocked}
             onGoToSettlement={() => setTab("settlement")}
           />
         ) : null}
@@ -237,6 +233,7 @@ export default function ActivityPage() {
         adminPassword={adminPassword}
         busy={controller.busy}
         run={controller.run}
+        verifyPassword={handleVerifyPassword}
         onUnlocked={handleUnlocked}
         onSelect={(identityId) => {
           setIdentity(identityId);

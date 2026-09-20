@@ -97,6 +97,24 @@ export function getActivityView(store: EventStore, activityId: string): Activity
 }
 
 /** Joining an activity needs no identity: anyone with the link may create one. */
+/**
+ * Checks the admin password without requiring an actor: used when someone
+ * switches to the admin identity, before they are acting as that identity.
+ */
+export function verifyAdminPassword(
+  store: EventStore,
+  activityId: string,
+  password: string,
+): void {
+  const row = requireActivity(store, activityId);
+  if (!row.adminPasswordHash) {
+    throw new AppError(403, "no_password", "这个活动还没有设置管理员密码");
+  }
+  if (!password || !verifyPassword(password, row.adminPasswordHash)) {
+    throw new AppError(403, "wrong_password", "管理员密码不正确");
+  }
+}
+
 export function createIdentity(
   store: EventStore,
   activityId: string,
@@ -239,7 +257,7 @@ function buildEvent(
   command: Exclude<Command, { type: "activity.close" }>,
 ): NewEvent | null {
   const activity = requireState(state);
-  if (activity.closedAt && command.type !== "rollback" && command.type !== "admin.verify") {
+  if (activity.closedAt && command.type !== "rollback") {
     throw new AppError(
       400,
       "activity_closed",
@@ -466,11 +484,6 @@ function buildEvent(
           ...(command.description !== undefined ? { description: command.description } : {}),
         },
       };
-    }
-
-    case "admin.verify": {
-      requireAdmin(row, state, actor);
-      return null;
     }
 
     case "admin.setPassword": {

@@ -7,14 +7,14 @@ import type { ActivityController } from "@/hooks/useActivity";
 export function AdminTab({
   controller,
   adminPassword,
+  verifyPassword,
   onUnlocked,
-  onLocked,
   onGoToSettlement,
 }: {
   controller: ActivityController;
   adminPassword: string | null;
+  verifyPassword: (password: string) => Promise<void>;
   onUnlocked: (password: string) => void;
-  onLocked: () => void;
   onGoToSettlement: () => void;
 }) {
   const { view, me, run, busy, reload } = controller;
@@ -38,7 +38,7 @@ export function AdminTab({
       return;
     }
     try {
-      await run({ type: "admin.verify" }, { adminPassword: password });
+      await verifyPassword(password);
       onUnlocked(password);
       setPassword("");
       toast.show("管理员模式已解锁", "success");
@@ -156,13 +156,10 @@ export function AdminTab({
         ) : unlocked ? (
           <>
             <p className="mt-2 text-sm leading-relaxed text-gray-500">
-              已解锁管理员功能，可以回滚历史记录、修改活动信息。
+              已解锁管理员功能，可以回滚历史记录、修改活动信息、关闭活动。密码保存在当前浏览器会话中。
             </p>
-            <div className="mt-4 flex gap-2">
-              <Button variant="secondary" className="flex-1" onClick={onLocked}>
-                锁定
-              </Button>
-              <Button variant="secondary" className="flex-1" onClick={() => void reload()}>
+            <div className="mt-4">
+              <Button variant="secondary" className="w-full" onClick={() => void reload()}>
                 刷新数据
               </Button>
             </div>
@@ -199,7 +196,7 @@ export function AdminTab({
         ) : (
           <>
             <p className="mt-2 text-sm leading-relaxed text-gray-500">
-              输入管理员密码以解锁回滚等管理功能。密码会保存在当前浏览器的会话中。
+              输入管理员密码以使用回滚、关闭活动等管理功能。密码会保存在当前浏览器会话中。
             </p>
             <div className="mt-4 flex items-center gap-2">
               <Input
