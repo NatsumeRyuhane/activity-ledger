@@ -164,12 +164,15 @@ export interface SettlementReport {
   /** Nothing can be settled until every member has responded to every payment. */
   pending: PendingConfirmation[];
   canSettle: boolean;
+  /** Transfers are only generated once the admin closes the activity. */
+  closed: boolean;
   includedTotalCents: number;
 }
 
 export function buildSettlement(
   payments: Payment[],
   memberIds: IdentityId[] = [],
+  closed = false,
 ): SettlementReport {
   const balances = new Map<IdentityId, number>();
   const included: string[] = [];
@@ -202,11 +205,12 @@ export function buildSettlement(
 
   return {
     balances: sorted,
-    transfers: canSettle ? settleBalances(sorted) : [],
+    transfers: closed && canSettle ? settleBalances(sorted) : [],
     includedPaymentIds: included,
     excludedPaymentIds: excluded,
     pending,
     canSettle,
+    closed,
     includedTotalCents,
   };
 }

@@ -46,6 +46,7 @@ export function PaymentDetailSheet({
   const involvement = involvementOf(payment, me.id);
   const responseState = myResponseState(payment, me.id);
   const isManager = payment.createdBy === me.id;
+  const closed = view.activity.closedAt !== undefined;
   const issues = issuesOf(payment);
   const totalCents = payerTotal(payment);
   const myShare = shareOf(payment, me.id);
@@ -171,7 +172,9 @@ export function PaymentDetailSheet({
 
         {!payment.voided && responseState === "declined" ? (
           <p className="rounded-xl bg-gray-50 px-3 py-2.5 text-xs leading-relaxed text-gray-500">
-            你已声明未参与这笔付款。如果你其实参与了，可以在下方加入。
+            {closed
+              ? "这笔付款中你被标记为未参与。"
+              : "你已声明未参与这笔付款。如果你其实参与了，可以在下方加入。"}
           </p>
         ) : null}
 
@@ -190,7 +193,7 @@ export function PaymentDetailSheet({
         <section>
           <div className="mb-2 flex items-center justify-between">
             <h4 className="text-sm font-medium text-gray-700">付款人</h4>
-            {!payment.voided && !involvement.isPayer && addPayerAmount === null ? (
+            {!payment.voided && !closed && !involvement.isPayer && addPayerAmount === null ? (
               <button
                 type="button"
                 className="text-sm font-medium text-teal-600"
@@ -209,20 +212,19 @@ export function PaymentDetailSheet({
                   <div className="flex items-center gap-2 rounded-xl border border-gray-100 px-2.5 py-2">
                     <UserPill
                       identity={identityOf(payer.identityId)}
-                      className="min-w-0 flex-1"
+                      className="max-w-[55%]"
+                      highlight={payer.identityId === payment.createdBy}
+                      tag={payer.identityId === payment.createdBy ? "创建人" : undefined}
                       trailing={
-                        payer.identityId === payment.createdBy ? (
-                          <span className="shrink-0 text-xs text-gray-400">创建者</span>
-                        ) : isMe ? (
-                          <span className="shrink-0 text-xs text-teal-600">我</span>
-                        ) : null
+                        isMe ? <span className="shrink-0 text-xs text-teal-600">我</span> : null
                       }
                     />
+                    <div className="ml-auto flex shrink-0 items-center gap-2">
                     {!payer.confirmed ? <Badge tone="amber">待确认</Badge> : null}
                     <span className="font-mono text-sm font-medium tabular-nums text-gray-900">
                       {formatYuan(payer.amountCents)}
                     </span>
-                    {isMe && !payment.voided && editMyPayerAmount === null ? (
+                    {isMe && !payment.voided && !closed && editMyPayerAmount === null ? (
                       <button
                         type="button"
                         className="text-xs text-teal-600"
@@ -255,6 +257,7 @@ export function PaymentDetailSheet({
                         </svg>
                       </button>
                     ) : null}
+                    </div>
                   </div>
 
                   {isMe && editMyPayerAmount !== null ? (
@@ -302,7 +305,7 @@ export function PaymentDetailSheet({
         <section>
           <div className="mb-2 flex items-center justify-between">
             <h4 className="text-sm font-medium text-gray-700">参与人</h4>
-            {!payment.voided && !involvement.isParticipant ? (
+            {!payment.voided && !closed && !involvement.isParticipant ? (
               <button
                 type="button"
                 className="text-sm font-medium text-teal-600"
@@ -324,11 +327,14 @@ export function PaymentDetailSheet({
                 >
                   <UserPill
                     identity={identityOf(participant.identityId)}
-                    className="min-w-0 flex-1"
+                    className="max-w-[55%]"
+                    highlight={participant.identityId === payment.createdBy}
+                    tag={participant.identityId === payment.createdBy ? "创建人" : undefined}
                     trailing={
                       isMe ? <span className="shrink-0 text-xs text-teal-600">我</span> : null
                     }
                   />
+                  <div className="ml-auto flex shrink-0 items-center gap-2">
                   {!participant.confirmed ? <Badge tone="amber">待确认</Badge> : null}
                   {share !== undefined ? (
                     <span className="font-mono text-sm font-medium tabular-nums text-gray-900">
@@ -337,7 +343,7 @@ export function PaymentDetailSheet({
                   ) : (
                     <span className="text-xs text-gray-400">待设置</span>
                   )}
-                  {isManager && !payment.voided ? (
+                  {isManager && !payment.voided && !closed ? (
                     <button
                       type="button"
                       aria-label="移除参与人"
@@ -361,6 +367,7 @@ export function PaymentDetailSheet({
                       </svg>
                     </button>
                   ) : null}
+                  </div>
                 </div>
               );
             })}
@@ -375,7 +382,7 @@ export function PaymentDetailSheet({
       </div>
 
       <div className="mt-6 border-t border-gray-100 pt-4">
-        {!payment.voided && isManager ? (
+        {!payment.voided && isManager && !closed ? (
           <div className="flex gap-2">
             <Button variant="secondary" className="flex-1" onClick={onEdit} disabled={busy}>
               编辑付款

@@ -3,6 +3,7 @@ import {
   buildSettlement,
   type ActivityView,
   effectiveHistory,
+  isPaymentValid,
   newActivityId,
   newIdentityId,
   newPaymentId,
@@ -136,10 +137,131 @@ export function applyCommand(
 
   const events = store.loadEvents(activityId);
   const state = replay(events);
-  const event = buildEvent(store, row, state, actor, command);
-  if (event) store.append(activityId, [event]);
+  const newEvents = buildEvents(store, row, state, actor, command);
+  if (newEvents.length > 0) store.append(activityId, newEvents);
 
   return buildView(store, row);
+}
+
+function buildEvents(
+  store: EventStore,
+  row: ActivityRow,
+  state: LedgerState,
+  actor: Actor,
+  command: Command,
+): NewEvent[] {
+  if (command.type === "activity.close") {
+    return buildCloseEvents(row, state, actor, command.forced ?? false);
+  }
+  const event = buildEvent(store, row, state, actor, command);
+  return event ? [event] : [];
+}
+
+function buildCloseEvents(
+  row: ActivityRow,
+  state: LedgerState,
+  actor: Actor,
+  forced: boolean,
+): NewEvent[] {
+  requireAdmin(row, state, actor);
+  const activity = requireState(state);
+  if (activity.closedAt) throw new AppError(400, "already_closed", "活动已经关闭");
+
+  const actorId = actor.identityId;
+  const createdAt = Date.now();
+  const memberIds = state.identities.map((identity) => identity.id);
+  const { pending } = buildSettlement(state.payments, memberIds, false);
+
+  const newEvents: NewEvent[] = [];
+  if (pending.length > 0) {
+    if (!forced) {
+      throw new AppError(
+        400,
+        "pending_confirmations",
+        `还有 ${pending.length} 项未确认，无法关闭活动；也可以强制关闭，未确认的成员将按未参与处理`,
+      );
+    }
+
+    // Force close: drop unconfirmed enrollments of the payments that count.
+    const droppedPaymentIds = new Set<string>();
+    for (const payment of state.payments) {
+      if (!isPaymentValid(payment)) continue;
+      for (const payer of payment.payers) {
+        if (!payer.confirmed) {
+          newEvents.push({
+            type: "payer.removed",
+            actorIdentityId: actorId,
+            createdAt,
+            payload: { paymentId: payment.id, identityId: payer.identityId },
+          });
+          droppedPaymentIds.add(payment.id);
+        }
+      }
+      for (const participant of payment.participants) {
+        if (!participant.confirmed) {
+          newEvents.push({
+            type: "participant.removed",
+            actorIdentityId: actorId,
+            createdAt,
+            payload: { paymentId: payment.id, identityId: participant.identityId },
+          });
+          droppedPaymentIds.add(payment.id);
+        }
+      }
+    }
+
+    // Dropping entries moves the equal split, which invalidates the remaining
+    // members. The admin is finalizing the ledger, so they count as confirmed.
+    for (const payment of state.payments) {
+      if (!droppedPaymentIds.has(payment.id)) continue;
+      const survivors = new Set<string>([
+        ...payment.payers.filter((payer) => payer.confirmed).map((payer) => payer.identityId),
+        ...payment.participants
+          .filter((participant) => participant.confirmed)
+          .map((participant) => participant.identityId),
+      ]);
+      for (const memberId of survivors) {
+        newEvents.push({
+          type: "entry.confirmed",
+          actorIdentityId: actorId,
+          createdAt,
+          payload: { paymentId: payment.id, identityId: memberId },
+        });
+      }
+    }
+
+    // Everyone still uninvolved is treated as "not participating".
+    for (const payment of state.payments) {
+      if (!isPaymentValid(payment)) continue;
+      const involved = new Set<string>([
+        ...payment.payers
+          .filter((payer) => payer.confirmed)
+          .map((payer) => payer.identityId),
+        ...payment.participants
+          .filter((participant) => participant.confirmed)
+          .map((participant) => participant.identityId),
+      ]);
+      const declined = new Set(payment.declinedBy);
+      for (const memberId of memberIds) {
+        if (!involved.has(memberId) && !declined.has(memberId)) {
+          newEvents.push({
+            type: "entry.declined",
+            actorIdentityId: actorId,
+            createdAt,
+            payload: { paymentId: payment.id, identityId: memberId },
+          });
+        }
+      }
+    }
+  }
+
+  newEvents.push({
+    type: "activity.closed",
+    actorIdentityId: actorId,
+    createdAt,
+    payload: { forced },
+  });
+  return newEvents;
 }
 
 function buildEvent(
@@ -147,9 +269,17 @@ function buildEvent(
   row: ActivityRow,
   state: LedgerState,
   actor: Actor,
-  command: Command,
+  command: Exclude<Command, { type: "activity.close" }>,
 ): NewEvent | null {
   const activity = requireState(state);
+  if (activity.closedAt && command.type !== "rollback" && command.type !== "admin.verify") {
+    throw new AppError(
+      400,
+      "activity_closed",
+      "活动已关闭，如需修改请先在「记录」中回滚关闭操作",
+    );
+  }
+
   const now = Date.now();
   const actorId = actor.identityId;
   const base = { actorIdentityId: actorId, createdAt: now };
@@ -405,6 +535,7 @@ export function buildView(store: EventStore, row: ActivityRow): ActivityView {
     settlement: buildSettlement(
       state.payments,
       state.identities.map((identity) => identity.id),
+      state.activity?.closedAt !== undefined,
     ),
     events: events.map((event) => ({
       ...event,

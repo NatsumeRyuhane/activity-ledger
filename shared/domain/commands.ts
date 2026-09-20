@@ -93,6 +93,10 @@ export const commandSchema = z.discriminatedUnion("type", [
     paymentId: z.string().min(1),
   }),
   z.object({
+    type: z.literal("activity.close"),
+    forced: z.boolean().optional(),
+  }),
+  z.object({
     type: z.literal("rollback"),
     targetSeq: z.number().int().min(1),
     reason: z.string().trim().max(100).optional(),

@@ -8,6 +8,10 @@ import {
   type Payment,
 } from "@shared/domain";
 
+function settle(payments: Payment[], members: string[] = []) {
+  return buildSettlement(payments, members, true);
+}
+
 function payment(overrides: Partial<Payment> = {}): Payment {
   return {
     id: "pay-1",
@@ -87,7 +91,7 @@ describe("validatePayment", () => {
 
 describe("buildSettlement", () => {
   it("computes balances that sum to zero for valid payments", () => {
-    const report = buildSettlement([payment()]);
+    const report = settle([payment()]);
     expect(report.balances).toEqual([
       { identityId: "alice", balanceCents: 20000 },
       { identityId: "bob", balanceCents: -10000 },
@@ -101,7 +105,7 @@ describe("buildSettlement", () => {
   });
 
   it("simplifies chains into fewer transfers", () => {
-    const report = buildSettlement([
+    const report = settle([
       payment({
         id: "p1",
         payers: [{ identityId: "alice", amountCents: 20000, confirmed: true }],
@@ -126,7 +130,7 @@ describe("buildSettlement", () => {
   });
 
   it("excludes incomplete and voided payments", () => {
-    const report = buildSettlement([
+    const report = settle([
       payment({ id: "incomplete", participants: [] }),
       payment({ id: "voided", voided: true }),
       payment({ id: "ok" }),
@@ -136,7 +140,7 @@ describe("buildSettlement", () => {
   });
 
   it("handles multiple creditors and debtors with minimal movements", () => {
-    const report = buildSettlement([
+    const report = settle([
       payment({
         id: "p1",
         payers: [{ identityId: "alice", amountCents: 40000, confirmed: true }],
@@ -170,7 +174,7 @@ describe("buildSettlement", () => {
   });
 
   it("blocks transfers while any entry is unconfirmed", () => {
-    const report = buildSettlement([
+    const report = settle([
       payment({
         participants: [
           { identityId: "alice", confirmed: true },
@@ -190,7 +194,7 @@ describe("buildSettlement", () => {
   });
 
   it("blocks transfers for members who never responded", () => {
-    const report = buildSettlement(
+    const report = settle(
       [
         payment({
           participants: [
@@ -209,7 +213,7 @@ describe("buildSettlement", () => {
   });
 
   it("accepts an explicit decline as an answer", () => {
-    const report = buildSettlement(
+    const report = settle(
       [
         payment({
           declinedBy: ["dave"],
@@ -228,7 +232,7 @@ describe("buildSettlement", () => {
   });
 
   it("keeps tracking someone who joined after declining", () => {
-    const report = buildSettlement(
+    const report = settle(
       [
         payment({
           declinedBy: [],
@@ -246,7 +250,7 @@ describe("buildSettlement", () => {
   });
 
   it("reports unconfirmed payers too", () => {
-    const report = buildSettlement([
+    const report = settle([
       payment({
         payers: [{ identityId: "alice", amountCents: 30000, confirmed: false }],
       }),
@@ -260,7 +264,7 @@ describe("buildSettlement", () => {
   });
 
   it("ignores unanswered states of voided payments", () => {
-    const report = buildSettlement(
+    const report = settle(
       [
         payment({
           voided: true,
@@ -274,6 +278,14 @@ describe("buildSettlement", () => {
     );
     expect(report.canSettle).toBe(true);
     expect(report.pending).toEqual([]);
+  });
+
+  it("withholds transfers until the activity is closed", () => {
+    const open = buildSettlement([payment()]);
+    expect(open.closed).toBe(false);
+    expect(open.transfers).toEqual([]);
+    // Balances are still shown while the activity is open.
+    expect(open.balances).toHaveLength(3);
   });
 
   it("classifies each member's response state", () => {

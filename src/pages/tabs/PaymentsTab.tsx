@@ -30,8 +30,9 @@ export function PaymentsTab({ controller }: { controller: ActivityController }) 
 
   if (!view || !me) return null;
 
+  const closed = view.activity.closedAt !== undefined;
   const myPending = view.payments.filter(
-    (payment) => !payment.voided && needsMyResponse(payment, me.id),
+    (payment) => !payment.voided && !closed && needsMyResponse(payment, me.id),
   );
   const incompleteCount = view.settlement.excludedPaymentIds.length;
   const detailPayment = detailId ? view.payments.find((p) => p.id === detailId) : undefined;
@@ -126,6 +127,15 @@ export function PaymentsTab({ controller }: { controller: ActivityController }) 
 
   return (
     <div className="space-y-3 pb-24">
+      {closed ? (
+        <Card className="p-4">
+          <p className="text-sm font-medium text-gray-700">活动已关闭</p>
+          <p className="mt-1 text-xs leading-relaxed text-gray-500">
+            账目已锁定，不能再修改或补充。如需调整，请让管理员在「记录」中回滚关闭操作。
+          </p>
+        </Card>
+      ) : null}
+
       {myPending.length > 0 ? (
         <Card className="border-amber-200 bg-amber-50 p-4">
           <p className="text-sm font-semibold text-amber-900">
@@ -177,16 +187,18 @@ export function PaymentsTab({ controller }: { controller: ActivityController }) 
         ))
       )}
 
-      <button
-        type="button"
-        onClick={() => setFormState({ mode: "create" })}
-        className="fixed right-4 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-30 flex h-13 items-center gap-1.5 rounded-full bg-teal-600 py-3.5 pr-5 pl-4 text-[15px] font-semibold text-white shadow-lg shadow-teal-600/25 active:bg-teal-700"
-      >
-        <svg viewBox="0 0 20 20" fill="none" className="h-5 w-5">
-          <path d="M10 4v12M4 10h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-        </svg>
-        记一笔
-      </button>
+      {!closed ? (
+        <button
+          type="button"
+          onClick={() => setFormState({ mode: "create" })}
+          className="fixed right-4 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-30 flex h-13 items-center gap-1.5 rounded-full bg-teal-600 py-3.5 pr-5 pl-4 text-[15px] font-semibold text-white shadow-lg shadow-teal-600/25 active:bg-teal-700"
+        >
+          <svg viewBox="0 0 20 20" fill="none" className="h-5 w-5">
+            <path d="M10 4v12M4 10h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          记一笔
+        </button>
+      ) : null}
 
       {detailPayment ? (
         <PaymentDetailSheet

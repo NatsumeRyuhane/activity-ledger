@@ -4,7 +4,7 @@ import { ApiError } from "@/lib/api";
 import { useActivity } from "@/hooks/useActivity";
 import { UserPill } from "@/components/IdentityBadge";
 import { IdentitySheet } from "@/components/IdentitySheet";
-import { Button, EmptyState, Spinner } from "@/components/ui";
+import { Badge, Button, EmptyState, Spinner } from "@/components/ui";
 import { useToast } from "@/components/toast-context";
 import {
   clearAdminPassword,
@@ -125,7 +125,7 @@ export default function ActivityPage() {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col">
       <header className="sticky top-0 z-30 border-b border-gray-200/70 bg-white/95 backdrop-blur">
-        <div className="flex items-center gap-1.5 px-2 py-2.5">
+        <div className="flex flex-nowrap items-center gap-1.5 px-2 py-2.5">
           <button
             type="button"
             aria-label="返回首页"
@@ -144,9 +144,12 @@ export default function ActivityPage() {
           </button>
 
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-[15px] font-semibold text-gray-900">
-              {view.activity.name}
-            </h1>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <h1 className="truncate text-[15px] font-semibold text-gray-900">
+                {view.activity.name}
+              </h1>
+              {view.activity.closedAt !== undefined ? <Badge tone="gray">已关闭</Badge> : null}
+            </div>
             <p className="truncate text-xs text-gray-400">
               {view.identities.length} 位成员 · {activePaymentCount} 笔账目
             </p>
@@ -169,14 +172,21 @@ export default function ActivityPage() {
           </button>
 
           {me ? (
-            <UserPill identity={me} size="sm" onClick={() => setSwitcherOpen(true)} />
+            <UserPill
+              identity={me}
+              size="sm"
+              className="max-w-28 shrink-0"
+              onClick={() => setSwitcherOpen(true)}
+            />
           ) : null}
         </div>
       </header>
 
       <main className="flex-1 px-4 pt-4">
         {tab === "payments" ? <PaymentsTab controller={controller} /> : null}
-        {tab === "settlement" ? <SettlementTab controller={controller} /> : null}
+        {tab === "settlement" ? (
+          <SettlementTab controller={controller} adminPassword={adminPassword} />
+        ) : null}
         {tab === "history" ? (
           <HistoryTab
             controller={controller}
@@ -190,6 +200,7 @@ export default function ActivityPage() {
             adminPassword={adminPassword}
             onUnlocked={handleUnlocked}
             onLocked={handleLocked}
+            onGoToSettlement={() => setTab("settlement")}
           />
         ) : null}
       </main>

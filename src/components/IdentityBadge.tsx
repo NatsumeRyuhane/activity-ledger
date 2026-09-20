@@ -46,6 +46,8 @@ export function UserPill({
   size = "md",
   selected = false,
   muted = false,
+  highlight = false,
+  tag,
   onClick,
   trailing,
   className = "",
@@ -54,6 +56,10 @@ export function UserPill({
   size?: AvatarSize;
   selected?: boolean;
   muted?: boolean;
+  /** Emphasized style, used for the payment creator. */
+  highlight?: boolean;
+  /** Tiny label rendered inside the pill, e.g. 创建人. */
+  tag?: string;
   onClick?: () => void;
   trailing?: React.ReactNode;
   className?: string;
@@ -62,17 +68,24 @@ export function UserPill({
     <>
       <Avatar identity={identity} size={size} />
       <span className={`truncate ${muted ? "text-gray-400" : ""}`}>{identity.name}</span>
+      {tag ? (
+        <span className="shrink-0 rounded-full bg-teal-600/10 px-1.5 py-px text-[10px] font-medium text-teal-700">
+          {tag}
+        </span>
+      ) : null}
       {trailing}
     </>
   );
 
-  const classes = `inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-full py-0.5 pr-3 pl-0.5 text-sm ${
-    selected
+  const tone = highlight
+    ? "bg-teal-50 text-teal-800 ring-1 ring-teal-300"
+    : selected
       ? "bg-teal-50 text-teal-700 ring-1 ring-teal-500"
       : muted
         ? "bg-gray-50 text-gray-400"
-        : "bg-gray-100 text-gray-700"
-  } ${className}`;
+        : "bg-gray-100 text-gray-700";
+
+  const classes = `inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-full py-0.5 pr-3 pl-0.5 text-sm ${tone} ${className}`;
 
   if (!onClick) return <span className={classes}>{content}</span>;
   return (

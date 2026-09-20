@@ -11,6 +11,10 @@ export interface ActivityMeta {
   createdAt: number;
   creatorIdentityId: IdentityId;
   hasPassword: boolean;
+  /** Set once the admin closes the ledger; transfers are only generated after that. */
+  closedAt?: number;
+  /** True when the close skipped members who never responded. */
+  closedForced?: boolean;
 }
 
 export interface Identity {
@@ -71,6 +75,7 @@ export type LedgerEventType =
   | "entry.declined"
   | "settings.updated"
   | "settings.password_changed"
+  | "activity.closed"
   | "rollback";
 
 export interface ActivityCreatedPayload {
@@ -147,6 +152,10 @@ export interface SettingsUpdatedPayload {
   description?: string | null;
 }
 
+export interface ActivityClosedPayload {
+  forced: boolean;
+}
+
 export interface RollbackPayload {
   targetSeq: number;
   reason?: string;
@@ -166,6 +175,7 @@ export type LedgerEventPayload =
   | EntryConfirmedPayload
   | EntryDeclinedPayload
   | SettingsUpdatedPayload
+  | ActivityClosedPayload
   | RollbackPayload;
 
 export interface LedgerEvent<P = LedgerEventPayload> {

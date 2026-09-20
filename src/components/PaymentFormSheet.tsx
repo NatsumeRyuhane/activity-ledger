@@ -250,10 +250,13 @@ export function PaymentFormSheet({
                   className="grid grid-cols-[minmax(0,1fr)_6.5rem_2.5rem] items-center gap-2"
                 >
                   {isLocked ? (
-                    <span className="flex w-full min-w-0 items-center gap-1.5 rounded-full bg-gray-100 py-0.5 pr-3 pl-0.5">
+                    <span className="flex w-full min-w-0 items-center gap-1.5 rounded-full bg-teal-50 py-0.5 pr-3 pl-0.5 ring-1 ring-teal-300">
                       <Avatar identity={identityOf(payer.identityId)} size="sm" />
-                      <span className="min-w-0 flex-1 truncate text-sm text-gray-600">
+                      <span className="min-w-0 flex-1 truncate text-sm text-teal-800">
                         {identityOf(payer.identityId).name}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-teal-600/10 px-1.5 py-px text-[10px] font-medium text-teal-700">
+                        创建人
                       </span>
                     </span>
                   ) : (
@@ -288,8 +291,8 @@ export function PaymentFormSheet({
                     className="text-right font-mono tabular-nums"
                   />
                   {isLocked ? (
-                    <span className="text-center text-[10px] leading-tight text-gray-400">
-                      创建者
+                    <span className="text-center text-[10px] leading-tight font-medium text-teal-700">
+                      创建人
                     </span>
                   ) : (
                     <button

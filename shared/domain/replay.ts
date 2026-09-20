@@ -233,6 +233,15 @@ export function fold(events: LedgerEvent[]): LedgerState {
         break;
       }
 
+      case "activity.closed": {
+        const payload = event.payload as import("./types").ActivityClosedPayload;
+        if (state.activity) {
+          state.activity.closedAt = event.createdAt;
+          state.activity.closedForced = payload.forced;
+        }
+        break;
+      }
+
       case "settings.password_changed":
       case "rollback":
         break;

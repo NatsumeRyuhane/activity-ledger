@@ -9,11 +9,13 @@ export function AdminTab({
   adminPassword,
   onUnlocked,
   onLocked,
+  onGoToSettlement,
 }: {
   controller: ActivityController;
   adminPassword: string | null;
   onUnlocked: (password: string) => void;
   onLocked: () => void;
+  onGoToSettlement: () => void;
 }) {
   const { view, me, run, busy, reload } = controller;
   const toast = useToast();
@@ -247,6 +249,38 @@ export function AdminTab({
           </div>
         </Card>
       ) : null}
+
+      <Card className="p-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold text-gray-900">关闭活动</h2>
+          {activity.closedAt !== undefined ? <Badge tone="green">已关闭</Badge> : <Badge>进行中</Badge>}
+        </div>
+        {activity.closedAt !== undefined ? (
+          <>
+            <p className="mt-2 text-sm leading-relaxed text-gray-500">
+              活动已关闭，账目已锁定，转账方案已生成。
+              {activity.closedForced ? "这次是强制关闭，未确认的成员已按「未参与」处理。" : ""}
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-gray-400">
+              如需修改，请在「记录」中回滚关闭操作（需要管理员密码）。
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="mt-2 text-sm leading-relaxed text-gray-500">
+              结算转账方案只有在关闭活动后才会生成。所有成员都确认后可以直接关闭；如果还有人没有回应，可以强制关闭，未确认的成员将按「未参与」处理。
+            </p>
+            <Button
+              variant="secondary"
+              className="mt-3 w-full"
+              disabled={busy}
+              onClick={onGoToSettlement}
+            >
+              前往「结算」关闭活动
+            </Button>
+          </>
+        )}
+      </Card>
 
       <Card className="p-5">
         <h2 className="text-base font-semibold text-gray-900">高级功能</h2>

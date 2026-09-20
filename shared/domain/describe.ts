@@ -149,6 +149,16 @@ export function describeEvent(event: LedgerEvent, ctx: EventContext): EventDescr
     }
     case "entry.confirmed": {
       const payload = event.payload as EntryConfirmedPayload;
+      if (payload.identityId !== actor) {
+        return {
+          actorIdentityId: actor,
+          parts: [
+            text("将 "),
+            who(payload.identityId),
+            text(` 在${paymentLabel(payload.paymentId)}中的参与标记为已确认`),
+          ],
+        };
+      }
       return {
         actorIdentityId: actor,
         parts: [text(`确认了在${paymentLabel(payload.paymentId)}中的参与`)],
@@ -156,6 +166,12 @@ export function describeEvent(event: LedgerEvent, ctx: EventContext): EventDescr
     }
     case "entry.declined": {
       const payload = event.payload as EntryDeclinedPayload;
+      if (payload.identityId !== actor) {
+        return {
+          actorIdentityId: actor,
+          parts: [text("将 "), who(payload.identityId), text(` 视为未参与${paymentLabel(payload.paymentId)}`)],
+        };
+      }
       return {
         actorIdentityId: actor,
         parts: [text(`声明未参与${paymentLabel(payload.paymentId)}`)],
@@ -170,6 +186,15 @@ export function describeEvent(event: LedgerEvent, ctx: EventContext): EventDescr
     }
     case "settings.password_changed":
       return { actorIdentityId: actor, parts: [text("更新了管理员密码")] };
+    case "activity.closed": {
+      const payload = event.payload as import("./types").ActivityClosedPayload;
+      return {
+        actorIdentityId: actor,
+        parts: [
+          text(payload.forced ? "强制关闭了活动（未确认的成员按未参与处理）" : "关闭了活动"),
+        ],
+      };
+    }
     case "rollback": {
       const payload = event.payload as RollbackPayload;
       return {

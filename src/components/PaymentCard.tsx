@@ -22,7 +22,7 @@ export function PaymentCard({
   );
   const incomplete = isIncomplete(payment);
   const payers = payment.payers.slice(0, 2);
-  const participants = payment.participants.slice(0, 3);
+  const participants = payment.participants.slice(0, 2);
 
   return (
     <button type="button" onClick={onClick} className="w-full text-left">
@@ -50,19 +50,21 @@ export function PaymentCard({
               <p className="mt-0.5 text-xs text-gray-400">{formatDateTime(payment.paidAt)}</p>
             ) : null}
 
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              <span className="text-xs text-gray-400">付款人</span>
+            <div className="mt-2 flex flex-nowrap items-center gap-1.5 overflow-hidden">
+              <span className="shrink-0 text-xs text-gray-400">付款人</span>
               {payers.map((payer) => (
                 <UserPill key={payer.identityId} identity={identityOf(payer.identityId)} size="sm" />
               ))}
               {payment.payers.length > payers.length ? (
-                <span className="text-xs text-gray-400">+{payment.payers.length - payers.length}</span>
+                <span className="shrink-0 text-xs text-gray-400">
+                  +{payment.payers.length - payers.length}
+                </span>
               ) : null}
             </div>
 
             {payment.participants.length > 0 ? (
-              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                <span className="text-xs text-gray-400">参与</span>
+              <div className="mt-1.5 flex flex-nowrap items-center gap-1.5 overflow-hidden">
+                <span className="shrink-0 text-xs text-gray-400">参与</span>
                 {participants.map((participant) => (
                   <UserPill
                     key={participant.identityId}
@@ -72,7 +74,7 @@ export function PaymentCard({
                   />
                 ))}
                 {payment.participants.length > participants.length ? (
-                  <span className="text-xs text-gray-400">
+                  <span className="shrink-0 text-xs text-gray-400">
                     +{payment.participants.length - participants.length}
                   </span>
                 ) : null}

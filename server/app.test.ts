@@ -47,6 +47,14 @@ async function decline(activityId: string, actor: string, paymentId: string) {
   });
 }
 
+async function closeActivity(activityId: string, actor: string, password: string) {
+  return post(`/api/activities/${activityId}/commands`, {
+    actorIdentityId: actor,
+    adminPassword: password,
+    command: { type: "activity.close" },
+  });
+}
+
 async function confirm(activityId: string, actor: string, paymentId: string) {
   return post(`/api/activities/${activityId}/commands`, {
     actorIdentityId: actor,
@@ -237,7 +245,7 @@ describe("profiles and avatars", () => {
 
 describe("payments", () => {
   it("creates payments, waits for every member to respond and then settles", async () => {
-    const { activityId, identityId: captain } = await createActivity();
+    const { activityId, identityId: captain } = await createActivity("hunter2");
     const alice = await addIdentity(activityId, captain, "Alice");
     const bob = await addIdentity(activityId, captain, "Bob");
 
@@ -268,9 +276,21 @@ describe("payments", () => {
       { identityId: alice, balanceCents: 15000 },
       { identityId: bob, balanceCents: -15000 },
     ]);
-    expect(captainDecline.body.settlement.transfers).toEqual([
+    // Everyone responded, but the plan only materializes after the admin closes.
+    expect(captainDecline.body.settlement.transfers).toEqual([]);
+
+    const closed = await closeActivity(activityId, captain, "hunter2");
+    expect(closed.status).toBe(200);
+    expect(closed.body.activity.closedAt).toBeGreaterThan(0);
+    expect(closed.body.settlement.closed).toBe(true);
+    expect(closed.body.settlement.transfers).toEqual([
       { from: bob, to: alice, amountCents: 15000 },
     ]);
+
+    // Closed means locked: no more edits.
+    const lateEdit = await confirm(activityId, bob, paymentId);
+    expect(lateEdit.status).toBe(400);
+    expect(lateEdit.body.error.code).toBe("activity_closed");
   });
 
   it("requires an explicit decline from uninvolved members", async () => {
@@ -457,7 +477,7 @@ describe("payments", () => {
   });
 
   it("only lets the payment creator set custom shares", async () => {
-    const { activityId, identityId: captain } = await createActivity();
+    const { activityId, identityId: captain } = await createActivity("hunter2");
     const alice = await addIdentity(activityId, captain, "Alice");
     const bob = await addIdentity(activityId, captain, "Bob");
     await createPayment(activityId, alice, {
@@ -495,8 +515,10 @@ describe("payments", () => {
     const bobConfirm = await confirm(activityId, bob, paymentId);
     expect(bobConfirm.status).toBe(200);
     await decline(activityId, captain, paymentId);
-    const captainView = await get(`/api/activities/${activityId}`);
-    expect(captainView.body.settlement.transfers).toEqual([
+
+    const closed = await closeActivity(activityId, captain, "hunter2");
+    expect(closed.status).toBe(200);
+    expect(closed.body.settlement.transfers).toEqual([
       { from: bob, to: alice, amountCents: 10000 },
     ]);
   });
@@ -575,6 +597,91 @@ describe("payments", () => {
     expect(view.settlement.transfers).toEqual([]);
   });
 });
+
+describe("closing the activity", () => {
+  it("refuses to close while members have not responded", async () => {
+    const { activityId, identityId: captain } = await createActivity("hunter2");
+    const alice = await addIdentity(activityId, captain, "Alice");
+    await createPayment(activityId, alice, { participants: [{ identityId: alice }] });
+
+    const blocked = await closeActivity(activityId, captain, "hunter2");
+    expect(blocked.status).toBe(400);
+    expect(blocked.body.error.code).toBe("pending_confirmations");
+  });
+
+  it("lets the admin force close: unconfirmed entries are dropped as not participating", async () => {
+    const { activityId, identityId: captain } = await createActivity("hunter2");
+    const alice = await addIdentity(activityId, captain, "Alice");
+    const bob = await addIdentity(activityId, captain, "Bob");
+    const carol = await addIdentity(activityId, captain, "Carol");
+    const view = await createPayment(activityId, alice, {
+      payers: [{ identityId: alice, amountCents: 30000 }],
+      participants: [{ identityId: alice }, { identityId: bob }],
+    });
+    const paymentId = view.payments[0].id;
+    // Carol joins by herself, so her share counts as confirmed.
+    await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: carol,
+      command: { type: "participant.set", paymentId, identityId: carol },
+    });
+    // Her arrival moved Alice's equal share, so Alice confirms again.
+    await confirm(activityId, alice, paymentId);
+
+    const forced = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: captain,
+      adminPassword: "hunter2",
+      command: { type: "activity.close", forced: true },
+    });
+    expect(forced.status).toBe(200);
+    expect(forced.body.activity.closedForced).toBe(true);
+    expect(forced.body.settlement.closed).toBe(true);
+    expect(forced.body.settlement.pending).toEqual([]);
+
+    // Bob never responded: his registration is dropped and he counts as uninvolved.
+    const payment = forced.body.payments.find((p: any) => p.id === paymentId);
+    expect(payment.payers.map((p: any) => p.identityId)).toEqual([alice]);
+    expect(payment.participants.map((p: any) => p.identityId).sort()).toEqual(
+      [alice, carol].sort(),
+    );
+    expect(payment.declinedBy).toContain(bob);
+    expect(payment.declinedBy).toContain(captain);
+
+    // 300.00 split between the two confirmed participants.
+    expect(forced.body.settlement.transfers).toEqual([
+      { from: carol, to: alice, amountCents: 15000 },
+    ]);
+  });
+
+  it("only the admin can close, and rollback can reopen", async () => {
+    const { activityId, identityId: captain } = await createActivity("hunter2");
+    const alice = await addIdentity(activityId, captain, "Alice");
+    await createPayment(activityId, alice, { participants: [{ identityId: alice }] });
+
+    const byMember = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: alice,
+      command: { type: "activity.close" },
+    });
+    expect(byMember.status).toBe(403);
+
+    await decline(activityId, captain, await firstPaymentId(activityId));
+    await confirm(activityId, alice, await firstPaymentId(activityId));
+    const closed = await closeActivity(activityId, captain, "hunter2");
+    expect(closed.status).toBe(200);
+
+    const rolledBack = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: captain,
+      adminPassword: "hunter2",
+      command: { type: "rollback", targetSeq: closed.body.headSeq - 1 },
+    });
+    expect(rolledBack.status).toBe(200);
+    expect(rolledBack.body.activity.closedAt).toBeUndefined();
+    expect(rolledBack.body.settlement.closed).toBe(false);
+  });
+});
+
+async function firstPaymentId(activityId: string): Promise<string> {
+  return (await get(`/api/activities/${activityId}`)).body.payments[0].id;
+}
 
 describe("admin", () => {
   it("requires the admin password for rollback", async () => {
