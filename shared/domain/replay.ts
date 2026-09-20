@@ -81,10 +81,8 @@ export function fold(events: LedgerEvent[]): LedgerState {
         const payment = findPayment(state, payload.paymentId);
         if (!payment) break;
         const patch = payload.patch;
-        const previousAmountCents = payment.amountCents;
         const previousSplitMode = payment.splitMode;
         if (patch.title !== undefined) payment.title = patch.title;
-        if (patch.amountCents !== undefined) payment.amountCents = patch.amountCents;
         if (patch.splitMode !== undefined) payment.splitMode = patch.splitMode;
         if (patch.paidAt !== undefined) {
           if (patch.paidAt === null) delete payment.paidAt;
@@ -94,19 +92,9 @@ export function fold(events: LedgerEvent[]): LedgerState {
           if (patch.description === null) delete payment.description;
           else payment.description = patch.description;
         }
-        // Changing the total or the split mode invalidates previous
-        // confirmations of everyone but the person who made the change.
-        const totalChanged =
-          patch.amountCents !== undefined && patch.amountCents !== previousAmountCents;
-        const splitChanged =
-          patch.splitMode !== undefined && patch.splitMode !== previousSplitMode;
-        if (totalChanged || splitChanged) {
-          for (const payer of payment.payers) {
-            if (payer.identityId !== event.actorIdentityId) payer.confirmed = false;
-          }
-          for (const participant of payment.participants) {
-            if (participant.identityId !== event.actorIdentityId) participant.confirmed = false;
-          }
+        // Switching the split mode changes everyone's share of the payment.
+        if (patch.splitMode !== undefined && patch.splitMode !== previousSplitMode) {
+          invalidateParticipants(payment, event.actorIdentityId);
         }
         break;
       }
@@ -134,6 +122,10 @@ export function fold(events: LedgerEvent[]): LedgerState {
             confirmed,
           });
         }
+        // Changing what someone paid moves the equal split for every participant.
+        if (payment.splitMode === "equal") {
+          invalidateParticipants(payment, event.actorIdentityId);
+        }
         break;
       }
 
@@ -142,6 +134,9 @@ export function fold(events: LedgerEvent[]): LedgerState {
         const payment = findPayment(state, payload.paymentId);
         if (!payment) break;
         payment.payers = payment.payers.filter((p) => p.identityId !== payload.identityId);
+        if (payment.splitMode === "equal") {
+          invalidateParticipants(payment, event.actorIdentityId);
+        }
         break;
       }
 
@@ -172,6 +167,10 @@ export function fold(events: LedgerEvent[]): LedgerState {
             confirmed,
           });
         }
+        // Joining or leaving moves the equal split for the other participants.
+        if (payment.splitMode === "equal") {
+          invalidateParticipants(payment, event.actorIdentityId);
+        }
         break;
       }
 
@@ -193,6 +192,9 @@ export function fold(events: LedgerEvent[]): LedgerState {
         const payment = findPayment(state, payload.paymentId);
         if (!payment) break;
         payment.participants = payment.participants.filter((p) => p.identityId !== payload.identityId);
+        if (payment.splitMode === "equal") {
+          invalidateParticipants(payment, event.actorIdentityId);
+        }
         break;
       }
 
@@ -227,4 +229,14 @@ function normalizePayment(payment: Payment): Payment {
 
 function findPayment(state: LedgerState, paymentId: string): Payment | undefined {
   return state.payments.find((p) => p.id === paymentId);
+}
+
+/**
+ * When the equal split moves, every participant's share changes, so everyone
+ * but the person who made the change has to confirm their number again.
+ */
+function invalidateParticipants(payment: Payment, actorIdentityId: string | null): void {
+  for (const participant of payment.participants) {
+    if (participant.identityId !== actorIdentityId) participant.confirmed = false;
+  }
 }

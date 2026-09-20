@@ -149,7 +149,6 @@ function buildEvent(
       const payment: Payment = {
         id: newPaymentId(),
         title: command.title,
-        amountCents: command.amountCents,
         paidAt: command.paidAt,
         description: command.description || undefined,
         splitMode: command.splitMode,

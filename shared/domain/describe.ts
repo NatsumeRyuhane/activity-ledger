@@ -1,4 +1,5 @@
 import { formatYuan } from "./money";
+import { payerTotal } from "./settlement";
 import type {
   ActivityCreatedPayload,
   IdentityId,
@@ -36,13 +37,12 @@ export function describeEvent(event: LedgerEvent, ctx: EventContext): string {
     }
     case "payment.created": {
       const payload = event.payload as PaymentCreatedPayload;
-      return `${actor} 创建了付款${paymentTitle(payload.payment.id)}，总额 ${formatYuan(payload.payment.amountCents)}`;
+      return `${actor} 创建了付款${paymentTitle(payload.payment.id)}，总额 ${formatYuan(payerTotal(payload.payment))}`;
     }
     case "payment.updated": {
       const payload = event.payload as PaymentUpdatedPayload;
       const fields: string[] = [];
       if (payload.patch.title !== undefined) fields.push("标题");
-      if (payload.patch.amountCents !== undefined) fields.push("总额");
       if (payload.patch.paidAt !== undefined) fields.push("时间");
       if (payload.patch.description !== undefined) fields.push("备注");
       if (payload.patch.splitMode !== undefined) fields.push("分摊方式");

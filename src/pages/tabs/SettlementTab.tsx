@@ -76,7 +76,7 @@ export function SettlementTab({ controller }: { controller: ActivityController }
             </div>
             <div className="mt-1.5 flex items-center justify-between text-sm text-gray-500">
               <span>结算总额</span>
-              <span className="font-semibold text-gray-900">
+              <span className="font-mono font-semibold tabular-nums text-gray-900">
                 {formatYuan(settlement.includedTotalCents)}
               </span>
             </div>
@@ -94,11 +94,11 @@ export function SettlementTab({ controller }: { controller: ActivityController }
                     {nameOf(balance.identityId)}
                   </span>
                   {balance.balanceCents > 0 ? (
-                    <span className="text-sm font-semibold text-emerald-600">
+                    <span className="font-mono text-sm font-semibold tabular-nums text-emerald-600">
                       应收 {formatYuan(balance.balanceCents)}
                     </span>
                   ) : balance.balanceCents < 0 ? (
-                    <span className="text-sm font-semibold text-red-600">
+                    <span className="font-mono text-sm font-semibold tabular-nums text-red-600">
                       应付 {formatYuan(-balance.balanceCents)}
                     </span>
                   ) : (
@@ -144,7 +144,7 @@ export function SettlementTab({ controller }: { controller: ActivityController }
                       </svg>
                       <span className="truncate font-medium">{nameOf(transfer.to)}</span>
                     </div>
-                    <span className="shrink-0 text-sm font-semibold text-gray-900">
+                    <span className="shrink-0 font-mono text-sm font-semibold tabular-nums text-gray-900">
                       {formatYuan(transfer.amountCents)}
                     </span>
                   </div>

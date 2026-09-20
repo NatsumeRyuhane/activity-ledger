@@ -9,7 +9,6 @@ const dateString = z
 export const paymentPatchSchema = z
   .object({
     title: z.string().trim().min(1, "标题不能为空").max(40).optional(),
-    amountCents: z.number().int().min(0).max(100_000_000_000).optional(),
     paidAt: dateString.nullable().optional(),
     description: z.string().trim().max(200).nullable().optional(),
     splitMode: z.enum(["equal", "custom"]).optional(),
@@ -24,7 +23,6 @@ export const commandSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("payment.create"),
     title: z.string().trim().min(1, "请输入标题").max(40, "标题太长了"),
-    amountCents: z.number().int().min(0).max(100_000_000_000),
     paidAt: dateString.optional(),
     description: z.string().trim().max(200).optional(),
     splitMode: z.enum(["equal", "custom"]),

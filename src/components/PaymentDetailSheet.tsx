@@ -44,7 +44,7 @@ export function PaymentDetailSheet({
   const involvement = involvementOf(payment, me.id);
   const isManager = payment.createdBy === me.id;
   const issues = issuesOf(payment);
-  const remainingPayer = Math.max(0, payment.amountCents - payerTotal(payment));
+  const totalCents = payerTotal(payment);
   const myShare = shareOf(payment, me.id);
 
   async function exec(command: CommandInput, successMessage = "已更新") {
@@ -102,8 +102,8 @@ export function PaymentDetailSheet({
             {payment.voided ? <Badge>已作废</Badge> : null}
             {!payment.voided && issues.length > 0 ? <Badge tone="amber">待完善</Badge> : null}
           </div>
-          <p className="mt-1 text-3xl font-bold tracking-tight text-gray-900">
-            {formatYuan(payment.amountCents)}
+          <p className="mt-1 font-mono text-3xl font-bold tracking-tight tabular-nums text-gray-900">
+            {formatYuan(totalCents)}
           </p>
           <p className="mt-1 text-sm text-gray-500">
             {payment.paidAt ? `${formatDateTime(payment.paidAt)} · ` : ""}
@@ -166,7 +166,7 @@ export function PaymentDetailSheet({
               <button
                 type="button"
                 className="text-sm font-medium text-teal-600"
-                onClick={() => setAddPayerAmount(centsToYuanInput(remainingPayer))}
+                onClick={() => setAddPayerAmount("")}
               >
                 我也付了一部分
               </button>
@@ -191,7 +191,7 @@ export function PaymentDetailSheet({
                       {isMe ? <span className="ml-1 text-xs text-teal-600">我</span> : null}
                     </span>
                     {!payer.confirmed ? <Badge tone="amber">待确认</Badge> : null}
-                    <span className="text-sm font-medium text-gray-900">
+                    <span className="font-mono text-sm font-medium tabular-nums text-gray-900">
                       {formatYuan(payer.amountCents)}
                     </span>
                     {isMe && !payment.voided && editMyPayerAmount === null ? (
@@ -230,14 +230,14 @@ export function PaymentDetailSheet({
                   </div>
 
                   {isMe && editMyPayerAmount !== null ? (
-                    <div className="mt-2 flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50/50 px-3 py-2.5">
-                      <span className="flex-1 text-sm text-gray-700">我支付</span>
+                    <div className="mt-2 grid grid-cols-[minmax(0,1fr)_6.5rem_auto] items-center gap-2 rounded-xl border border-teal-200 bg-teal-50/50 px-3 py-2.5">
+                      <span className="text-sm text-gray-700">我支付</span>
                       <Input
                         value={editMyPayerAmount}
                         onChange={(event) => setEditMyPayerAmount(event.target.value)}
                         inputMode="decimal"
                         placeholder="0.00"
-                        className="w-24 text-right"
+                        className="text-right font-mono tabular-nums"
                       />
                       <Button
                         variant="secondary"
@@ -254,14 +254,14 @@ export function PaymentDetailSheet({
             })}
 
             {addPayerAmount !== null ? (
-              <div className="flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50/50 px-3 py-2.5">
-                <span className="flex-1 text-sm text-gray-700">我支付</span>
+              <div className="grid grid-cols-[minmax(0,1fr)_6.5rem_auto] items-center gap-2 rounded-xl border border-teal-200 bg-teal-50/50 px-3 py-2.5">
+                <span className="text-sm text-gray-700">我支付</span>
                 <Input
                   value={addPayerAmount}
                   onChange={(event) => setAddPayerAmount(event.target.value)}
                   inputMode="decimal"
                   placeholder="0.00"
-                  className="w-24 text-right"
+                  className="text-right font-mono tabular-nums"
                 />
                 <Button className="shrink-0" disabled={busy} onClick={confirmAddPayer}>
                   确定
@@ -304,7 +304,9 @@ export function PaymentDetailSheet({
                   </span>
                   {!participant.confirmed ? <Badge tone="amber">待确认</Badge> : null}
                   {share !== undefined ? (
-                    <span className="text-sm font-medium text-gray-900">{formatYuan(share)}</span>
+                    <span className="font-mono text-sm font-medium tabular-nums text-gray-900">
+                      {formatYuan(share)}
+                    </span>
                   ) : (
                     <span className="text-xs text-gray-400">待设置</span>
                   )}

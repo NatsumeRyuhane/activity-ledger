@@ -1,17 +1,12 @@
 import type { IdentityId, Participant, Payer, Payment } from "./types";
 import { sumCents } from "./money";
 
-export type PaymentIssue =
-  | "no-payers"
-  | "payer-sum-mismatch"
-  | "no-participants"
-  | "share-sum-mismatch";
+export type PaymentIssue = "no-payers" | "no-participants" | "share-sum-mismatch";
 
 export const PAYMENT_ISSUE_LABELS: Record<PaymentIssue, string> = {
   "no-payers": "还没有登记付款人",
-  "payer-sum-mismatch": "付款人金额合计与总额不符",
   "no-participants": "还没有参与人",
-  "share-sum-mismatch": "分摊金额合计与总额不符",
+  "share-sum-mismatch": "分摊金额合计与付款总额不符",
 };
 
 export function payerTotal(payment: Payment): number {
@@ -26,10 +21,12 @@ export function shareTotal(payment: Payment): number {
 export function validatePayment(payment: Payment): PaymentIssue[] {
   const issues: PaymentIssue[] = [];
   if (payment.payers.length === 0) issues.push("no-payers");
-  else if (payerTotal(payment) !== payment.amountCents) issues.push("payer-sum-mismatch");
-
   if (payment.participants.length === 0) issues.push("no-participants");
-  else if (payment.splitMode === "custom" && shareTotal(payment) !== payment.amountCents) {
+  if (
+    payment.participants.length > 0 &&
+    payment.splitMode === "custom" &&
+    shareTotal(payment) !== payerTotal(payment)
+  ) {
     issues.push("share-sum-mismatch");
   }
   return issues;
@@ -139,7 +136,7 @@ export function buildSettlement(payments: Payment[]): SettlementReport {
       continue;
     }
     included.push(payment.id);
-    includedTotalCents += payment.amountCents;
+    includedTotalCents += payerTotal(payment);
     unconfirmed.push(...unconfirmedEntries(payment));
     for (const payer of payment.payers) bump(payer.identityId, payer.amountCents);
     for (const [identityId, share] of computeShares(payment)) bump(identityId, -share);

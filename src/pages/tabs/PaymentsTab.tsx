@@ -56,7 +56,6 @@ export function PaymentsTab({ controller }: { controller: ActivityController }) 
             paymentId: payment.id,
             patch: {
               title: value.title,
-              amountCents: value.amountCents,
               paidAt: value.paidAt ?? null,
               description: value.description ?? null,
               splitMode: value.splitMode,

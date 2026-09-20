@@ -54,7 +54,6 @@ async function createPayment(
     command: {
       type: "payment.create",
       title: "晚餐",
-      amountCents: 30000,
       splitMode: "equal",
       payers: [{ identityId: actor, amountCents: 30000 }],
       participants: [{ identityId: actor }],
@@ -172,11 +171,15 @@ describe("payments", () => {
     expect(again.body.settlement.canSettle).toBe(true);
   });
 
-  it("resets other confirmations when the total changes", async () => {
+  it("resets other confirmations when the amount paid changes", async () => {
     const { activityId, identityId: captain } = await createActivity();
     const alice = await addIdentity(activityId, captain, "Alice");
     const bob = await addIdentity(activityId, captain, "Bob");
     const view = await createPayment(activityId, alice, {
+      payers: [
+        { identityId: alice, amountCents: 20000 },
+        { identityId: bob, amountCents: 10000 },
+      ],
       participants: [{ identityId: alice }, { identityId: bob }],
     });
     const paymentId = view.payments[0].id;
@@ -185,18 +188,24 @@ describe("payments", () => {
       actorIdentityId: bob,
       command: { type: "entry.confirm", paymentId },
     });
-
-    const updated = await post(`/api/activities/${activityId}/commands`, {
+    await post(`/api/activities/${activityId}/commands`, {
       actorIdentityId: alice,
-      command: { type: "payment.update", paymentId, patch: { amountCents: 40000 } },
+      command: { type: "entry.confirm", paymentId },
+    });
+
+    // Bob raises what he paid: the equal split moves for Alice.
+    const updated = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: bob,
+      command: { type: "payer.set", paymentId, identityId: bob, amountCents: 12000 },
     });
     expect(updated.status).toBe(200);
     expect(
-      updated.body.payments[0].participants.find((p: any) => p.identityId === bob).confirmed,
+      updated.body.payments[0].participants.find((p: any) => p.identityId === alice).confirmed,
     ).toBe(false);
     expect(
-      updated.body.payments[0].participants.find((p: any) => p.identityId === alice).confirmed,
+      updated.body.payments[0].participants.find((p: any) => p.identityId === bob).confirmed,
     ).toBe(true);
+    expect(updated.body.settlement.canSettle).toBe(false);
   });
 
   it("refuses to confirm for someone else", async () => {
@@ -332,7 +341,6 @@ describe("payments", () => {
       command: {
         type: "payment.create",
         title: "晚餐",
-        amountCents: 30000,
         splitMode: "equal",
         payers: [{ identityId: bob, amountCents: 30000 }],
         participants: [{ identityId: alice }],
@@ -364,7 +372,6 @@ describe("payments", () => {
     const alice = await addIdentity(activityId, captain, "Alice");
     const bob = await addIdentity(activityId, captain, "Bob");
     await createPayment(activityId, alice, {
-      amountCents: 30000,
       payers: [
         { identityId: alice, amountCents: 20000 },
         { identityId: bob, amountCents: 10000 },
@@ -391,8 +398,8 @@ describe("payments", () => {
   it("marks inconsistent payments as excluded from settlement", async () => {
     const { activityId, identityId: captain } = await createActivity();
     const view = await createPayment(activityId, captain, {
-      amountCents: 30000,
-      payers: [{ identityId: captain, amountCents: 20000 }],
+      splitMode: "custom",
+      participants: [{ identityId: captain, shareCents: 10000 }],
     });
     expect(view.settlement.excludedPaymentIds).toHaveLength(1);
     expect(view.settlement.transfers).toEqual([]);

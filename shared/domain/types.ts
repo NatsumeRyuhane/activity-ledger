@@ -36,7 +36,6 @@ export interface Participant {
 export interface Payment {
   id: PaymentId;
   title: string;
-  amountCents: number;
   paidAt?: string;
   description?: string;
   splitMode: SplitMode;
@@ -83,7 +82,6 @@ export interface PaymentCreatedPayload {
 
 export interface PaymentPatch {
   title?: string;
-  amountCents?: number;
   paidAt?: string | null;
   description?: string | null;
   splitMode?: SplitMode;

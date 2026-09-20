@@ -11,7 +11,6 @@ function payment(overrides: Partial<Payment> = {}): Payment {
   return {
     id: "pay-1",
     title: "晚餐",
-    amountCents: 30000,
     splitMode: "equal",
     createdBy: "alice",
     createdAt: 1,
@@ -36,10 +35,7 @@ describe("computeShares", () => {
 
   it("distributes remainder cents deterministically", () => {
     const shares = computeShares(
-      payment({
-        amountCents: 10001,
-        payers: [{ identityId: "alice", amountCents: 10001, confirmed: true }],
-      }),
+      payment({ payers: [{ identityId: "alice", amountCents: 10001, confirmed: true }] }),
     );
     expect([...shares.values()].reduce((a, b) => a + b, 0)).toBe(10001);
     expect([...shares.values()].sort((a, b) => b - a)).toEqual([3334, 3334, 3333]);
@@ -68,13 +64,6 @@ describe("validatePayment", () => {
     expect(validatePayment(payment())).toEqual([]);
   });
 
-  it("flags mismatched payer totals", () => {
-    const issues = validatePayment(
-      payment({ payers: [{ identityId: "alice", amountCents: 20000, confirmed: true }] }),
-    );
-    expect(issues).toContain("payer-sum-mismatch");
-  });
-
   it("flags custom shares that do not sum to the total", () => {
     const issues = validatePayment(
       payment({
@@ -89,7 +78,7 @@ describe("validatePayment", () => {
   });
 
   it("flags missing payers or participants", () => {
-    expect(validatePayment(payment({ payers: [], amountCents: 0 }))).toContain("no-payers");
+    expect(validatePayment(payment({ payers: [] }))).toContain("no-payers");
     expect(validatePayment(payment({ participants: [] }))).toContain("no-participants");
   });
 });
@@ -113,7 +102,6 @@ describe("buildSettlement", () => {
     const report = buildSettlement([
       payment({
         id: "p1",
-        amountCents: 20000,
         payers: [{ identityId: "alice", amountCents: 20000, confirmed: true }],
         participants: [
           { identityId: "alice", confirmed: true },
@@ -122,7 +110,6 @@ describe("buildSettlement", () => {
       }),
       payment({
         id: "p2",
-        amountCents: 20000,
         payers: [{ identityId: "bob", amountCents: 20000, confirmed: true }],
         participants: [
           { identityId: "bob", confirmed: true },
@@ -150,7 +137,6 @@ describe("buildSettlement", () => {
     const report = buildSettlement([
       payment({
         id: "p1",
-        amountCents: 40000,
         payers: [{ identityId: "alice", amountCents: 40000, confirmed: true }],
         participants: [
           { identityId: "alice", confirmed: true },
@@ -161,7 +147,6 @@ describe("buildSettlement", () => {
       }),
       payment({
         id: "p2",
-        amountCents: 40000,
         payers: [{ identityId: "dave", amountCents: 40000, confirmed: true }],
         participants: [
           { identityId: "alice", confirmed: true },

@@ -13,7 +13,6 @@ import { nowInputValue } from "@/lib/format";
 
 export interface PaymentFormValue {
   title: string;
-  amountCents: number;
   paidAt?: string;
   description?: string;
   splitMode: SplitMode;
@@ -49,9 +48,6 @@ export function PaymentFormSheet({
   const identities = view.identities;
   const lockedPayerId = payment ? payment.createdBy : me.id;
   const [title, setTitle] = useState(payment?.title ?? "");
-  const [amount, setAmount] = useState(
-    payment ? centsToYuanInput(payment.amountCents) : "",
-  );
   const [paidAt, setPaidAt] = useState(payment?.paidAt ?? nowInputValue());
   const [description, setDescription] = useState(payment?.description ?? "");
   const [splitMode, setSplitMode] = useState<SplitMode>(payment?.splitMode ?? "equal");
@@ -76,9 +72,7 @@ export function PaymentFormSheet({
   );
   const [error, setError] = useState<string | null>(null);
 
-  const amountCents = parseYuanToCents(amount);
-  const totalCents = amountCents ?? 0;
-  const payerSumCents = payers.reduce(
+  const totalCents = payers.reduce(
     (sum, payer) => sum + (parseYuanToCents(payer.amount) ?? 0),
     0,
   );
@@ -86,23 +80,13 @@ export function PaymentFormSheet({
     (sum, participant) => sum + (parseYuanToCents(participant.share) ?? 0),
     0,
   );
-  const payerMismatch = amountCents !== null && payerSumCents !== amountCents;
-  const shareMismatch =
-    splitMode === "custom" && amountCents !== null && shareSumCents !== amountCents;
-
-  function changeAmount(next: string) {
-    setAmount(next);
-    setPayers((current) =>
-      current.length === 1 ? [{ ...current[0], amount: next }] : current,
-    );
-  }
+  const shareMismatch = splitMode === "custom" && shareSumCents !== totalCents;
 
   function distributeShares() {
-    const total = amountCents ?? payerSumCents;
     const count = participants.length;
-    if (total <= 0 || count === 0) return;
-    const base = Math.floor(total / count);
-    let remainder = total - base * count;
+    if (totalCents <= 0 || count === 0) return;
+    const base = Math.floor(totalCents / count);
+    let remainder = totalCents - base * count;
     setParticipants((current) =>
       current.map((participant) => {
         const extra = remainder > 0 ? 1 : 0;
@@ -116,7 +100,9 @@ export function PaymentFormSheet({
     setSplitMode(mode);
     setError(null);
     if (mode === "custom") {
-      const allEmpty = participants.every((participant) => parseYuanToCents(participant.share) === null);
+      const allEmpty = participants.every(
+        (participant) => parseYuanToCents(participant.share) === null,
+      );
       if (allEmpty) distributeShares();
     }
   }
@@ -128,8 +114,7 @@ export function PaymentFormSheet({
       setError("没有可添加的成员了");
       return;
     }
-    const remaining = Math.max(0, totalCents - payerSumCents);
-    setPayers((current) => [...current, { identityId: next.id, amount: centsToYuanInput(remaining) }]);
+    setPayers((current) => [...current, { identityId: next.id, amount: "" }]);
   }
 
   function addParticipant() {
@@ -159,23 +144,23 @@ export function PaymentFormSheet({
       setError("请填写标题");
       return;
     }
-    if (amountCents === null || amountCents <= 0) {
-      setError("请填写有效的金额");
-      return;
-    }
     if (payers.length === 0) {
       setError("至少需要一位付款人");
       return;
+    }
+    for (const payer of payers) {
+      if (parseYuanToCents(payer.amount) === null) {
+        setError("请填写每位付款人的支付金额");
+        return;
+      }
     }
     if (!payers.some((payer) => payer.identityId === lockedPayerId)) {
       setError("付款创建者必须是付款人，不能被移除");
       return;
     }
-    for (const payer of payers) {
-      if (parseYuanToCents(payer.amount) === null) {
-        setError("付款金额格式不正确");
-        return;
-      }
+    if (totalCents <= 0) {
+      setError("付款总额需要大于 0");
+      return;
     }
     if (participants.length === 0) {
       setError("至少需要一位参与人");
@@ -190,7 +175,6 @@ export function PaymentFormSheet({
 
     onSubmit({
       title: title.trim(),
-      amountCents,
       paidAt: paidAt || undefined,
       description: description.trim() || undefined,
       splitMode,
@@ -215,9 +199,9 @@ export function PaymentFormSheet({
       footer={
         <div className="space-y-2.5">
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
-          {!error && (payerMismatch || shareMismatch) ? (
+          {!error && shareMismatch ? (
             <p className="text-xs text-amber-600">
-              金额尚未对齐，仍可保存，之后继续修改；对齐前这笔付款会标记为「待完善」。
+              分摊金额与付款总额不一致，仍可保存，之后继续修改；对齐前这笔付款会标记为「待完善」。
             </p>
           ) : null}
           <div className="flex gap-2">
@@ -241,52 +225,6 @@ export function PaymentFormSheet({
           />
         </Field>
 
-        <Field label="总额（元）">
-          <Input
-            value={amount}
-            onChange={(event) => changeAmount(event.target.value)}
-            placeholder="0.00"
-            inputMode="decimal"
-          />
-        </Field>
-
-        <Field
-          label="时间"
-          hint={
-            paidAt ? (
-              <button type="button" className="text-teal-600" onClick={() => setPaidAt("")}>
-                清除
-              </button>
-            ) : null
-          }
-        >
-          <Input
-            type="datetime-local"
-            value={paidAt}
-            onChange={(event) => setPaidAt(event.target.value)}
-          />
-        </Field>
-
-        <Field label="备注" hint="选填">
-          <Textarea
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            placeholder="补充说明……"
-            maxLength={200}
-          />
-        </Field>
-
-        <Field label="分摊方式">
-          <Segmented
-            value={splitMode}
-            onChange={changeSplitMode}
-            options={[
-              { value: "equal", label: "均分" },
-              { value: "custom", label: "自定义" },
-            ]}
-          />
-        </Field>
-
         <section>
           <div className="mb-2 flex items-center justify-between">
             <h3 className="text-sm font-medium text-gray-700">付款人</h3>
@@ -298,73 +236,90 @@ export function PaymentFormSheet({
             {payers.map((payer, index) => {
               const isLocked = payer.identityId === lockedPayerId;
               return (
-              <div key={`${payer.identityId}-${index}`} className="flex items-center gap-2">
-                <Select
-                  value={payer.identityId}
-                  disabled={isLocked}
-                  onChange={(event) =>
-                    setPayers((current) =>
-                      current.map((item, i) =>
-                        i === index ? { ...item, identityId: event.target.value } : item,
-                      ),
-                    )
-                  }
-                  className="min-w-0 flex-1 disabled:bg-gray-100"
+                <div
+                  key={`${payer.identityId}-${index}`}
+                  className="grid grid-cols-[minmax(0,1fr)_6.5rem_2.5rem] items-center gap-2"
                 >
-                  {identities.map((identity) => (
-                    <option
-                      key={identity.id}
-                      value={identity.id}
-                      disabled={payers.some(
-                        (item, i) => i !== index && item.identityId === identity.id,
-                      )}
-                    >
-                      {identity.name}
-                    </option>
-                  ))}
-                </Select>
-                <Input
-                  value={payer.amount}
-                  onChange={(event) =>
-                    setPayers((current) =>
-                      current.map((item, i) =>
-                        i === index ? { ...item, amount: event.target.value } : item,
-                      ),
-                    )
-                  }
-                  inputMode="decimal"
-                  placeholder="0.00"
-                  className="w-24 text-right"
-                />
-                {isLocked ? (
-                  <span className="w-9 shrink-0 text-center text-[11px] text-gray-400">创建者</span>
-                ) : (
-                  <button
-                    type="button"
-                    aria-label="移除付款人"
-                    onClick={() =>
-                      setPayers((current) => current.filter((_, i) => i !== index))
+                  <Select
+                    value={payer.identityId}
+                    disabled={isLocked}
+                    onChange={(event) =>
+                      setPayers((current) =>
+                        current.map((item, i) =>
+                          i === index ? { ...item, identityId: event.target.value } : item,
+                        ),
+                      )
                     }
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100"
+                    className="min-w-0 disabled:bg-gray-100"
                   >
-                    <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
-                      <path
-                        d="M5 5l10 10M15 5L5 15"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                  </button>
-                )}
-              </div>
+                    {identities.map((identity) => (
+                      <option
+                        key={identity.id}
+                        value={identity.id}
+                        disabled={payers.some(
+                          (item, i) => i !== index && item.identityId === identity.id,
+                        )}
+                      >
+                        {identity.name}
+                      </option>
+                    ))}
+                  </Select>
+                  <Input
+                    value={payer.amount}
+                    onChange={(event) =>
+                      setPayers((current) =>
+                        current.map((item, i) =>
+                          i === index ? { ...item, amount: event.target.value } : item,
+                        ),
+                      )
+                    }
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    className="text-right font-mono tabular-nums"
+                  />
+                  {isLocked ? (
+                    <span className="text-center text-[10px] leading-tight text-gray-400">
+                      创建者
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      aria-label="移除付款人"
+                      onClick={() =>
+                        setPayers((current) => current.filter((_, i) => i !== index))
+                      }
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100"
+                    >
+                      <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
+                        <path
+                          d="M5 5l10 10M15 5L5 15"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                    </button>
+                  )}
+                </div>
               );
             })}
             {payers.length === 0 ? (
               <p className="text-sm text-gray-400">还没有付款人，点「添加」选择。</p>
             ) : null}
           </div>
+          <p className="mt-2 text-xs text-gray-400">总额 = 所有付款人支付金额之和</p>
         </section>
+
+        <Field label="分摊方式">
+          <Segmented
+            value={splitMode}
+            onChange={changeSplitMode}
+            options={[
+              { value: "equal", label: "均分" },
+              { value: "custom", label: "自定义" },
+            ]}
+          />
+        </Field>
 
         <section>
           <div className="mb-2 flex items-center justify-between">
@@ -406,7 +361,10 @@ export function PaymentFormSheet({
           ) : (
             <div className="space-y-2">
               {participants.map((participant, index) => (
-                <div key={`${participant.identityId}-${index}`} className="flex items-center gap-2">
+                <div
+                  key={`${participant.identityId}-${index}`}
+                  className="grid grid-cols-[minmax(0,1fr)_6.5rem_2.5rem] items-center gap-2"
+                >
                   <Select
                     value={participant.identityId}
                     onChange={(event) =>
@@ -441,7 +399,7 @@ export function PaymentFormSheet({
                     }
                     inputMode="decimal"
                     placeholder="0.00"
-                    className="w-24 text-right"
+                    className="text-right font-mono tabular-nums"
                   />
                   <button
                     type="button"
@@ -462,13 +420,13 @@ export function PaymentFormSheet({
                   </button>
                 </div>
               ))}
-              {participants.length > 0 && amountCents !== null ? (
+              {participants.length > 0 && totalCents > 0 ? (
                 <button
                   type="button"
                   onClick={distributeShares}
                   className="text-sm font-medium text-teal-600"
                 >
-                  平均分配剩余金额
+                  按总额平均分配
                 </button>
               ) : null}
               {participants.length === 0 ? (
@@ -478,28 +436,54 @@ export function PaymentFormSheet({
           )}
         </section>
 
+        <Field
+          label="时间"
+          hint={
+            paidAt ? (
+              <button type="button" className="text-teal-600" onClick={() => setPaidAt("")}>
+                清除
+              </button>
+            ) : null
+          }
+        >
+          <Input
+            type="datetime-local"
+            value={paidAt}
+            onChange={(event) => setPaidAt(event.target.value)}
+          />
+        </Field>
+
+        <Field label="备注" hint="选填">
+          <Textarea
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="补充说明……"
+            maxLength={200}
+          />
+        </Field>
+
         <div className="space-y-1.5 rounded-xl bg-gray-50 p-3 text-sm">
           <div className="flex justify-between text-gray-600">
-            <span>总额</span>
-            <span className="font-medium text-gray-900">{formatYuan(totalCents)}</span>
-          </div>
-          <div className="flex justify-between text-gray-600">
-            <span>付款合计</span>
-            <span className={payerMismatch ? "font-medium text-red-600" : "text-gray-900"}>
-              {formatYuan(payerSumCents)}
+            <span>总额（付款人合计）</span>
+            <span className="font-mono font-semibold tabular-nums text-gray-900">
+              {formatYuan(totalCents)}
             </span>
           </div>
           {splitMode === "custom" ? (
             <div className="flex justify-between text-gray-600">
               <span>分摊合计</span>
-              <span className={shareMismatch ? "font-medium text-red-600" : "text-gray-900"}>
+              <span
+                className={`font-mono tabular-nums ${
+                  shareMismatch ? "font-medium text-red-600" : "text-gray-900"
+                }`}
+              >
                 {formatYuan(shareSumCents)}
               </span>
             </div>
-          ) : participants.length > 0 && amountCents !== null ? (
+          ) : participants.length > 0 && totalCents > 0 ? (
             <div className="flex justify-between text-gray-600">
               <span>每人约</span>
-              <span className="text-gray-900">
+              <span className="font-mono tabular-nums text-gray-900">
                 {formatYuan(Math.floor(totalCents / participants.length))}
               </span>
             </div>

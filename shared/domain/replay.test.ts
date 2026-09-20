@@ -9,7 +9,6 @@ function basePayment(overrides: Partial<Payment> = {}): Payment {
   return {
     id: "pay-1",
     title: "晚餐",
-    amountCents: 30000,
     splitMode: "equal",
     createdBy: ALICE,
     createdAt: 3,
@@ -67,7 +66,7 @@ function events(): LedgerEvent[] {
       type: "payer.set",
       actorIdentityId: ALICE,
       createdAt: 5,
-      payload: { paymentId: "pay-1", identityId: BOB, amountCents: 10000, confirmed: true },
+      payload: { paymentId: "pay-1", identityId: BOB, amountCents: 10000, confirmed: false },
     },
   ];
 }
@@ -78,9 +77,16 @@ describe("replay", () => {
     expect(state.activity?.name).toBe("露营");
     expect(state.identities.map((i) => i.name)).toEqual(["队长", "Alice"]);
     expect(state.payments).toHaveLength(1);
+    // Alice registered Bob's payment afterwards, so that entry awaits Bob.
     expect(state.payments[0].payers).toEqual([
       { identityId: ALICE, amountCents: 30000, confirmed: true },
-      { identityId: BOB, amountCents: 10000, confirmed: true },
+      { identityId: BOB, amountCents: 10000, confirmed: false },
+    ]);
+    // Bob joining moved everyone's equal share, so both participant entries
+    // need a fresh confirmation even though nobody's paid amount changed.
+    expect(state.payments[0].participants).toEqual([
+      { identityId: ALICE, confirmed: false },
+      { identityId: BOB, confirmed: false },
     ]);
   });
 

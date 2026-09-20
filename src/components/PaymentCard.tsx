@@ -1,4 +1,4 @@
-import { formatYuan, type Payment } from "@shared/domain";
+import { formatYuan, payerTotal, type Payment } from "@shared/domain";
 import { IdentityBadge } from "@/components/IdentityBadge";
 import { Badge, Card } from "@/components/ui";
 import { payerSummary, unconfirmedCount, isIncomplete } from "@/lib/payment";
@@ -71,8 +71,8 @@ export function PaymentCard({
             ) : null}
           </div>
 
-          <p className="shrink-0 text-right text-lg font-semibold text-gray-900">
-            {formatYuan(payment.amountCents)}
+          <p className="shrink-0 text-right font-mono text-lg font-semibold tabular-nums text-gray-900">
+            {formatYuan(payerTotal(payment))}
           </p>
         </div>
       </Card>
