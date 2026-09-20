@@ -1,8 +1,10 @@
 import { useState } from "react";
 import type { Identity } from "@shared/domain";
 import { Avatar } from "@/components/IdentityBadge";
-import { Button, Input, Sheet } from "@/components/ui";
+import { Button, Field, Input, Sheet } from "@/components/ui";
 import { ProfileSheet } from "@/components/ProfileSheet";
+import { useToast } from "@/components/toast-context";
+import { ApiError } from "@/lib/api";
 import type { RunCommand } from "@/hooks/useActivity";
 
 export function IdentitySheet({
@@ -10,8 +12,11 @@ export function IdentitySheet({
   dismissible,
   identities,
   currentId,
+  hasPassword,
+  adminPassword,
   busy,
   run,
+  onUnlocked,
   onSelect,
   onCreate,
   onClose,
@@ -20,16 +25,54 @@ export function IdentitySheet({
   dismissible: boolean;
   identities: Identity[];
   currentId: string | null;
+  hasPassword: boolean;
+  adminPassword: string | null;
   busy?: boolean;
   run: RunCommand;
+  onUnlocked: (password: string) => void;
   onSelect: (identityId: string) => void;
   onCreate: (name: string) => void;
   onClose: () => void;
 }) {
+  const toast = useToast();
   const [name, setName] = useState("");
   const [editing, setEditing] = useState(false);
+  const [pendingAdmin, setPendingAdmin] = useState<Identity | null>(null);
+  const [password, setPassword] = useState("");
+  const [verifying, setVerifying] = useState(false);
 
   const me = identities.find((identity) => identity.id === currentId) ?? null;
+
+  function requestSwitch(identity: Identity) {
+    const isAdminIdentity = identity.isCreator;
+    const alreadyHere = identity.id === currentId;
+    if (isAdminIdentity && !alreadyHere && hasPassword && !adminPassword) {
+      setPendingAdmin(identity);
+      return;
+    }
+    onSelect(identity.id);
+  }
+
+  async function verifyAndSwitch() {
+    if (!pendingAdmin) return;
+    if (!password) {
+      toast.show("请输入管理员密码", "error");
+      return;
+    }
+    setVerifying(true);
+    try {
+      await run({ type: "admin.verify" }, { adminPassword: password });
+      onUnlocked(password);
+      onSelect(pendingAdmin.id);
+      toast.show("管理员密码已验证", "success");
+      setPendingAdmin(null);
+      setPassword("");
+    } catch (error) {
+      toast.show(error instanceof ApiError ? error.message : "验证失败，请稍后再试", "error");
+    } finally {
+      setVerifying(false);
+    }
+  }
 
   if (editing && me) {
     return <ProfileSheet me={me} busy={busy} run={run} onClose={() => setEditing(false)} />;
@@ -59,7 +102,7 @@ export function IdentitySheet({
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => onSelect(identity.id)}
+                onClick={() => requestSwitch(identity)}
                 className="flex min-w-0 flex-1 items-center gap-2.5 rounded-full px-1.5 py-1 text-left"
               >
                 <Avatar identity={identity} />
@@ -67,7 +110,9 @@ export function IdentitySheet({
                   {identity.name}
                 </span>
                 {identity.isCreator ? (
-                  <span className="shrink-0 text-xs text-gray-400">创建者</span>
+                  <span className="shrink-0 text-xs text-gray-400">
+                    {hasPassword ? "管理员" : "创建者"}
+                  </span>
                 ) : null}
                 {isMe ? <span className="shrink-0 text-xs font-medium text-teal-600">当前</span> : null}
               </button>
@@ -93,6 +138,56 @@ export function IdentitySheet({
           );
         })}
       </div>
+
+      {pendingAdmin ? (
+        <Sheet
+          open
+          onClose={() => {
+            setPendingAdmin(null);
+            setPassword("");
+          }}
+          title="验证管理员密码"
+          footer={
+            <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                className="flex-1"
+                onClick={() => {
+                  setPendingAdmin(null);
+                  setPassword("");
+                }}
+                disabled={verifying}
+              >
+                取消
+              </Button>
+              <Button className="flex-1" disabled={verifying} onClick={() => void verifyAndSwitch()}>
+                {verifying ? "验证中…" : "验证并切换"}
+              </Button>
+            </div>
+          }
+        >
+          <div className="flex items-center gap-2.5">
+            <Avatar identity={pendingAdmin} />
+            <p className="text-sm text-gray-600">
+              切换到管理员身份「{pendingAdmin.name}」需要验证管理员密码。
+            </p>
+          </div>
+          <div className="mt-4">
+            <Field label="管理员密码">
+              <Input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="请输入管理员密码"
+                maxLength={128}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void verifyAndSwitch();
+                }}
+              />
+            </Field>
+          </div>
+        </Sheet>
+      ) : null}
 
       <form
         className="mt-5 flex items-center gap-2"

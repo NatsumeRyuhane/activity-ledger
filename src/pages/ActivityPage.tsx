@@ -233,8 +233,11 @@ export default function ActivityPage() {
         dismissible={Boolean(me)}
         identities={view.identities}
         currentId={me?.id ?? null}
+        hasPassword={view.activity.hasPassword}
+        adminPassword={adminPassword}
         busy={controller.busy}
         run={controller.run}
+        onUnlocked={handleUnlocked}
         onSelect={(identityId) => {
           setIdentity(identityId);
           setSwitcherOpen(false);

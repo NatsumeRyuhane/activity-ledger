@@ -744,6 +744,33 @@ describe("admin", () => {
     expect(change.body.activity.hasPassword).toBe(true);
   });
 
+  it("verifies the admin password for identity switching", async () => {
+    const { activityId, identityId: captain } = await createActivity("hunter2");
+
+    const wrong = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: captain,
+      adminPassword: "nope",
+      command: { type: "admin.verify" },
+    });
+    expect(wrong.status).toBe(403);
+    expect(wrong.body.error.code).toBe("wrong_password");
+
+    const right = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: captain,
+      adminPassword: "hunter2",
+      command: { type: "admin.verify" },
+    });
+    expect(right.status).toBe(200);
+
+    const noPasswordSet = await createActivity();
+    const fallback = await post(`/api/activities/${noPasswordSet.activityId}/commands`, {
+      actorIdentityId: noPasswordSet.identityId,
+      command: { type: "admin.verify" },
+    });
+    expect(fallback.status).toBe(403);
+    expect(fallback.body.error.code).toBe("no_password");
+  });
+
   it("rejects rollbacks that would change nothing", async () => {
     const { activityId, identityId: captain } = await createActivity("hunter2");
     await addIdentity(activityId, captain, "Alice");
