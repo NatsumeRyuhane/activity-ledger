@@ -20,7 +20,7 @@ import {
   type LedgerState,
   type Payment,
 } from "@shared/domain";
-import { hashPassword, verifyPassword } from "./password";
+import { MAX_PASSWORD_LENGTH, hashPassword, verifyPassword } from "./password";
 import type { ActivityRow, EventStore, NewEvent } from "./store";
 
 export class AppError extends Error {
@@ -60,6 +60,11 @@ export function createActivity(
   if (input.password !== undefined && input.password !== "" && input.password.length < 4) {
     throw new AppError(400, "invalid_password", "密码至少 4 位");
   }
+  // verifyPassword refuses over-long passwords, so storing one would lock the
+  // admin out for good.
+  if (input.password !== undefined && input.password.length > MAX_PASSWORD_LENGTH) {
+    throw new AppError(400, "invalid_password", "密码不能超过 128 位");
+  }
 
   let activityId = newActivityId();
   for (let attempt = 0; attempt < 5 && store.getActivity(activityId); attempt++) {
@@ -83,10 +88,12 @@ export function createActivity(
     hasPassword: false,
   };
 
-  store.createActivity(activityId, now, { activity, creator });
-  if (input.password) {
-    store.setAdminPasswordHash(activityId, hashPassword(input.password));
-  }
+  store.createActivity(
+    activityId,
+    now,
+    { activity, creator },
+    input.password ? hashPassword(input.password) : null,
+  );
 
   return { activityId, identityId: creator.id };
 }
@@ -155,10 +162,18 @@ export function applyCommand(
 
   const events = store.loadEvents(activityId);
   const state = replay(events);
-  const newEvents = buildEvents(store, row, state, actor, command);
-  if (newEvents.length > 0) store.append(activityId, newEvents);
+  const built = buildEvents(store, row, state, actor, command);
+  if (built.events.length > 0 || built.adminPasswordHash !== undefined) {
+    store.append(activityId, built.events, built.adminPasswordHash);
+  }
 
   return buildView(store, row);
+}
+
+interface BuiltCommands {
+  events: NewEvent[];
+  /** Set when the admin password hash must commit with these events. */
+  adminPasswordHash?: string;
 }
 
 function buildEvents(
@@ -167,12 +182,124 @@ function buildEvents(
   state: LedgerState,
   actor: Actor,
   command: Command,
-): NewEvent[] {
+): BuiltCommands {
   if (command.type === "activity.close") {
-    return buildCloseEvents(row, state, actor, command.forced ?? false);
+    return { events: buildCloseEvents(row, state, actor, command.forced ?? false) };
   }
-  const event = buildEvent(store, row, state, actor, command);
-  return event ? [event] : [];
+  if (command.type === "payment.edit") {
+    return { events: buildPaymentEditEvents(row, state, actor, command) };
+  }
+
+  const built = buildEvent(store, row, state, actor, command);
+  if (!built) return { events: [] };
+  if ("event" in built) {
+    return { events: [built.event], adminPasswordHash: built.adminPasswordHash };
+  }
+  return { events: [built] };
+}
+
+/**
+ * Applies a full payment edit (fields + payer/participant lists) as one batch:
+ * every generated event is appended in a single transaction, so a failure can
+ * never leave a half-edited payment behind.
+ */
+function buildPaymentEditEvents(
+  row: ActivityRow,
+  state: LedgerState,
+  actor: Actor,
+  command: Extract<Command, { type: "payment.edit" }>,
+): NewEvent[] {
+  const payment = requirePayment(state, command.paymentId);
+  requirePaymentManager(row, state, actor, payment);
+  for (const payer of command.payers) requireIdentity(state, payer.identityId);
+  for (const participant of command.participants) {
+    requireIdentity(state, participant.identityId);
+  }
+  if (!command.payers.some((payer) => payer.identityId === payment.createdBy)) {
+    throw new AppError(400, "creator_must_pay", "付款创建者必须是付款人，不能被移除");
+  }
+
+  const actorId = actor.identityId;
+  const createdAt = Date.now();
+  const events: NewEvent[] = [
+    {
+      type: "payment.updated",
+      actorIdentityId: actorId,
+      createdAt,
+      payload: {
+        paymentId: payment.id,
+        patch: {
+          title: command.title,
+          paidAt: command.paidAt ?? null,
+          description: command.description ?? null,
+          splitMode: command.splitMode,
+        },
+      },
+    },
+  ];
+
+  for (const payer of command.payers) {
+    const existing = payment.payers.find((item) => item.identityId === payer.identityId);
+    if (!existing || existing.amountCents !== payer.amountCents) {
+      events.push({
+        type: "payer.set",
+        actorIdentityId: actorId,
+        createdAt,
+        payload: {
+          paymentId: payment.id,
+          identityId: payer.identityId,
+          amountCents: payer.amountCents,
+          confirmed: payer.identityId === actorId,
+        },
+      });
+    }
+  }
+  for (const existing of payment.payers) {
+    if (!command.payers.some((item) => item.identityId === existing.identityId)) {
+      events.push({
+        type: "payer.removed",
+        actorIdentityId: actorId,
+        createdAt,
+        payload: { paymentId: payment.id, identityId: existing.identityId },
+      });
+    }
+  }
+
+  for (const participant of command.participants) {
+    const existing = payment.participants.find(
+      (item) => item.identityId === participant.identityId,
+    );
+    const changed =
+      !existing ||
+      (command.splitMode === "custom" && existing.shareCents !== participant.shareCents);
+    if (changed) {
+      events.push({
+        type: "participant.set",
+        actorIdentityId: actorId,
+        createdAt,
+        payload: {
+          paymentId: payment.id,
+          identityId: participant.identityId,
+          ...(command.splitMode === "custom"
+            ? { shareCents: participant.shareCents ?? 0 }
+            : {}),
+          confirmed: participant.identityId === actorId,
+        },
+      });
+    }
+  }
+  for (const existing of payment.participants) {
+    if (!command.participants.some((item) => item.identityId === existing.identityId)) {
+      events.push({
+        type: "participant.removed",
+        actorIdentityId: actorId,
+        createdAt,
+        payload: { paymentId: payment.id, identityId: existing.identityId },
+      });
+    }
+  }
+
+  return events;
 }
 
 function buildCloseEvents(
@@ -249,13 +376,17 @@ function buildCloseEvents(
   return newEvents;
 }
 
+type BuiltEvent =
+  | NewEvent
+  | { event: NewEvent; adminPasswordHash: string };
+
 function buildEvent(
   store: EventStore,
   row: ActivityRow,
   state: LedgerState,
   actor: Actor,
-  command: Exclude<Command, { type: "activity.close" }>,
-): NewEvent | null {
+  command: Exclude<Command, { type: "activity.close" } | { type: "payment.edit" }>,
+): BuiltEvent | null {
   const activity = requireState(state);
   if (activity.closedAt && command.type !== "rollback") {
     throw new AppError(
@@ -499,8 +630,11 @@ function buildEvent(
           throw new AppError(403, "wrong_password", "当前管理员密码不正确");
         }
       }
-      store.setAdminPasswordHash(row.id, hashPassword(command.newPassword));
-      return { ...base, type: "settings.password_changed", payload: {} };
+      // The hash is applied together with this event in one transaction.
+      return {
+        event: { ...base, type: "settings.password_changed", payload: {} },
+        adminPasswordHash: hashPassword(command.newPassword),
+      };
     }
   }
 }

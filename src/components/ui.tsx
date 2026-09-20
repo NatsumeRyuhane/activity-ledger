@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import type { ComponentProps, ReactNode } from "react";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
@@ -134,9 +135,23 @@ export function Sheet({
   footer?: ReactNode;
   closable?: boolean;
 }) {
+  useEffect(() => {
+    if (!open || !closable) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, closable, onClose]);
+
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4"
+    >
       {closable ? (
         <button
           type="button"

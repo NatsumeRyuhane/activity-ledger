@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { createApp } from "./app";
 import { openDatabase } from "./db";
+import { resetRateLimits } from "./rate-limit";
 import { EventStore } from "./store";
 
 let app: Hono;
 let store: EventStore;
 
 beforeEach(() => {
+  resetRateLimits();
   store = new EventStore(openDatabase(":memory:"));
   app = createApp(store);
 });
@@ -140,6 +142,72 @@ describe("activities", () => {
       command: { type: "payment.create", title: "" },
     });
     expect(status).toBe(400);
+  });
+});
+
+describe("abuse protection", () => {
+  it("throttles repeated admin password attempts", async () => {
+    const { activityId } = await createActivity("hunter2");
+
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const response = await post(`/api/activities/${activityId}/admin/verify`, {
+        password: `wrong-${attempt}`,
+      });
+      expect(response.status).toBe(403);
+    }
+
+    const blocked = await post(`/api/activities/${activityId}/admin/verify`, {
+      password: "hunter2",
+    });
+    expect(blocked.status).toBe(429);
+    expect(blocked.body.error.code).toBe("too_many_attempts");
+
+    // Rate limiting also covers the command path that carries a password.
+    const command = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: "whoever",
+      adminPassword: "hunter2",
+      command: { type: "rollback", targetSeq: 1 },
+    });
+    expect(command.status).toBe(429);
+  });
+
+  it("clears the failure counter after a successful verification", async () => {
+    const { activityId } = await createActivity("hunter2");
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await post(`/api/activities/${activityId}/admin/verify`, { password: "nope" });
+    }
+    const ok = await post(`/api/activities/${activityId}/admin/verify`, { password: "hunter2" });
+    expect(ok.status).toBe(200);
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await post(`/api/activities/${activityId}/admin/verify`, {
+        password: "nope",
+      });
+      expect(response.status).toBe(403);
+    }
+  });
+
+  it("rejects oversized avatar uploads before buffering them", async () => {
+    const oversized = Buffer.alloc(11 * 1024 * 1024, 1);
+    const response = await app.request("/api/avatars", {
+      method: "POST",
+      headers: { "content-type": "image/png" },
+      body: oversized,
+    });
+    expect(response.status).toBe(413);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("image_too_large");
+  });
+
+  it("rejects over-long admin passwords at activity creation", async () => {
+    const { status, body } = await post("/api/activities", {
+      name: "长密码",
+      creatorName: "队长",
+      password: "x".repeat(129),
+    });
+    expect(status).toBe(400);
+    expect(body.error.code).toBe("invalid_password");
   });
 });
 
@@ -549,6 +617,110 @@ describe("payments", () => {
     });
     expect(view.settlement.excludedPaymentIds).toHaveLength(1);
     expect(view.settlement.transfers).toEqual([]);
+  });
+});
+
+describe("payment edits", () => {
+  it("applies a full edit as one batch", async () => {
+    const { activityId, identityId: captain } = await createActivity();
+    const alice = await addIdentity(activityId, captain, "Alice");
+    const bob = await addIdentity(activityId, captain, "Bob");
+    const carol = await addIdentity(activityId, captain, "Carol");
+    const view = await createPayment(activityId, alice, {
+      payers: [{ identityId: alice, amountCents: 30000 }],
+      participants: [{ identityId: alice }],
+    });
+    const paymentId = view.payments[0].id;
+
+    const edited = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: alice,
+      command: {
+        type: "payment.edit",
+        paymentId,
+        title: "晚餐（改）",
+        paidAt: "2026-09-20T19:30",
+        description: "含饮料",
+        splitMode: "custom",
+        payers: [
+          { identityId: alice, amountCents: 24000 },
+          { identityId: bob, amountCents: 6000 },
+        ],
+        participants: [
+          { identityId: alice, shareCents: 15000 },
+          { identityId: carol, shareCents: 15000 },
+        ],
+      },
+    });
+
+    expect(edited.status).toBe(200);
+    const payment = edited.body.payments.find((p: any) => p.id === paymentId);
+    expect(payment).toMatchObject({
+      title: "晚餐（改）",
+      paidAt: "2026-09-20T19:30",
+      description: "含饮料",
+      splitMode: "custom",
+    });
+    expect(payment.payers).toEqual([
+      { identityId: alice, amountCents: 24000, confirmed: true },
+      { identityId: bob, amountCents: 6000, confirmed: false },
+    ]);
+    expect(payment.participants).toContainEqual({
+      identityId: carol,
+      shareCents: 15000,
+      confirmed: false,
+    });
+    // 240.00 + 60.00 paid, 150.00 + 150.00 owed.
+    expect(edited.body.settlement.canSettle).toBe(false);
+    expect(
+      edited.body.events.filter((e: any) => e.type === "payer.set" || e.type === "participant.set")
+        .length,
+    ).toBeGreaterThan(1);
+  });
+
+  it("rejects a batch edit from non-managers and invalid targets", async () => {
+    const { activityId, identityId: captain } = await createActivity();
+    const alice = await addIdentity(activityId, captain, "Alice");
+    const bob = await addIdentity(activityId, captain, "Bob");
+    const view = await createPayment(activityId, alice, {
+      payers: [{ identityId: alice, amountCents: 30000 }],
+      participants: [{ identityId: alice }],
+    });
+    const paymentId = view.payments[0].id;
+    const headSeq = view.headSeq;
+
+    const base = {
+      type: "payment.edit",
+      paymentId,
+      title: "改一下",
+      splitMode: "equal",
+      payers: [{ identityId: alice, amountCents: 30000 }],
+      participants: [{ identityId: alice }],
+    };
+
+    const byMember = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: bob,
+      command: base,
+    });
+    expect(byMember.status).toBe(403);
+
+    const droppingCreator = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: alice,
+      command: { ...base, payers: [{ identityId: bob, amountCents: 30000 }] },
+    });
+    expect(droppingCreator.status).toBe(400);
+    expect(droppingCreator.body.error.code).toBe("creator_must_pay");
+
+    const unknownIdentity = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: alice,
+      command: { ...base, participants: [{ identityId: "nobody" }] },
+    });
+    expect(unknownIdentity.status).toBe(403);
+    expect(unknownIdentity.body.error.code).toBe("unknown_identity");
+
+    // Validation happens before anything is written.
+    const after = await get(`/api/activities/${activityId}`);
+    expect(after.body.headSeq).toBe(headSeq);
+    expect(after.body.payments[0].title).toBe("晚餐");
   });
 });
 

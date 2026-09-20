@@ -95,13 +95,13 @@ export function PaymentFormSheet({
     const count = participants.length;
     if (totalCents <= 0 || count === 0) return;
     const base = Math.floor(totalCents / count);
-    let remainder = totalCents - base * count;
-    setParticipants((current) =>
-      current.map((participant) => {
-        const extra = remainder > 0 ? 1 : 0;
-        remainder -= extra;
-        return { ...participant, share: centsToYuanInput(base + extra) };
-      }),
+    const remainder = totalCents - base * count;
+    // Compute the whole result up front: state updaters must stay pure.
+    setParticipants(
+      participants.map((participant, index) => ({
+        ...participant,
+        share: centsToYuanInput(base + (index < remainder ? 1 : 0)),
+      })),
     );
   }
 

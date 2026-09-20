@@ -1,9 +1,12 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 
 const KEY_LENGTH = 64;
-const MAX_PASSWORD_LENGTH = 128;
+export const MAX_PASSWORD_LENGTH = 128;
 
 export function hashPassword(password: string): string {
+  if (password.length > MAX_PASSWORD_LENGTH) {
+    throw new Error(`password exceeds ${MAX_PASSWORD_LENGTH} characters`);
+  }
   const salt = randomBytes(16);
   const hash = scryptSync(password, salt, KEY_LENGTH);
   return `scrypt:${salt.toString("base64")}:${hash.toString("base64")}`;

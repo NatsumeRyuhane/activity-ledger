@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import type { Payment } from "@shared/domain";
-import type { CommandInput } from "@shared/domain/commands";
 import { ApiError } from "@/lib/api";
 import { useToast } from "@/components/toast-context";
 import { PaymentCard } from "@/components/PaymentCard";
@@ -51,72 +50,18 @@ export function PaymentsTab({ controller }: { controller: ActivityController }) 
         const payment = view!.payments.find((item) => item.id === formState.paymentId);
         if (!payment) throw new Error("missing payment");
 
-        const commands: CommandInput[] = [
-          {
-            type: "payment.update",
-            paymentId: payment.id,
-            patch: {
-              title: value.title,
-              paidAt: value.paidAt ?? null,
-              description: value.description ?? null,
-              splitMode: value.splitMode,
-            },
-          },
-        ];
-
-        for (const payer of value.payers) {
-          const existing = payment.payers.find((item) => item.identityId === payer.identityId);
-          if (!existing || existing.amountCents !== payer.amountCents) {
-            commands.push({
-              type: "payer.set",
-              paymentId: payment.id,
-              identityId: payer.identityId,
-              amountCents: payer.amountCents,
-            });
-          }
-        }
-        for (const payer of payment.payers) {
-          if (!value.payers.some((item) => item.identityId === payer.identityId)) {
-            commands.push({
-              type: "payer.remove",
-              paymentId: payment.id,
-              identityId: payer.identityId,
-            });
-          }
-        }
-
-        for (const participant of value.participants) {
-          const existing = payment.participants.find(
-            (item) => item.identityId === participant.identityId,
-          );
-          const changed =
-            !existing ||
-            (value.splitMode === "custom" &&
-              existing.shareCents !== participant.shareCents);
-          if (changed) {
-            commands.push({
-              type: "participant.set",
-              paymentId: payment.id,
-              identityId: participant.identityId,
-              ...(value.splitMode === "custom"
-                ? { shareCents: participant.shareCents ?? 0 }
-                : {}),
-            });
-          }
-        }
-        for (const participant of payment.participants) {
-          if (!value.participants.some((item) => item.identityId === participant.identityId)) {
-            commands.push({
-              type: "participant.remove",
-              paymentId: payment.id,
-              identityId: participant.identityId,
-            });
-          }
-        }
-
-        for (const command of commands) {
-          await run(command);
-        }
+        // One batch command: the server validates the whole edit and appends
+        // every event in a single transaction.
+        await run({
+          type: "payment.edit",
+          paymentId: payment.id,
+          title: value.title,
+          paidAt: value.paidAt,
+          description: value.description,
+          splitMode: value.splitMode,
+          payers: value.payers,
+          participants: value.participants,
+        });
         toast.show("已保存", "success");
       }
       setFormState(null);

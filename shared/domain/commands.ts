@@ -57,6 +57,31 @@ export const commandSchema = z.discriminatedUnion("type", [
       .max(100),
   }),
   z.object({
+    type: z.literal("payment.edit"),
+    paymentId: z.string().min(1),
+    title: z.string().trim().min(1, "请输入标题").max(40, "标题太长了"),
+    paidAt: dateString.optional(),
+    description: z.string().trim().max(200).optional(),
+    splitMode: z.enum(["equal", "custom"]),
+    payers: z
+      .array(
+        z.object({
+          identityId: z.string().min(1),
+          amountCents: z.number().int().min(0).max(100_000_000_000),
+        }),
+      )
+      .min(1, "至少需要一位付款人")
+      .max(100),
+    participants: z
+      .array(
+        z.object({
+          identityId: z.string().min(1),
+          shareCents: z.number().int().min(0).max(100_000_000_000).optional(),
+        }),
+      )
+      .max(100),
+  }),
+  z.object({
     type: z.literal("payment.update"),
     paymentId: z.string().min(1),
     patch: paymentPatchSchema,

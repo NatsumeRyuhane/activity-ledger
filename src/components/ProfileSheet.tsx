@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Identity } from "@shared/domain";
 import { ApiError, uploadAvatar } from "@/lib/api";
 import { Avatar, } from "@/components/IdentityBadge";
@@ -19,6 +19,7 @@ export function ProfileSheet({
 }) {
   const toast = useToast();
   const fileInput = useRef<HTMLInputElement>(null);
+  const previewUrl = useRef<string | null>(null);
   const [name, setName] = useState(me.name);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -26,6 +27,15 @@ export function ProfileSheet({
   const [saving, setSaving] = useState(false);
 
   const currentAvatar = removeAvatar ? undefined : (preview ?? me.avatar);
+
+  function releasePreview() {
+    if (previewUrl.current) {
+      URL.revokeObjectURL(previewUrl.current);
+      previewUrl.current = null;
+    }
+  }
+
+  useEffect(() => releasePreview, []);
 
   function pickFile(selected: File | null) {
     if (!selected) return;
@@ -37,8 +47,10 @@ export function ProfileSheet({
       toast.show("图片不能超过 10MB", "error");
       return;
     }
+    releasePreview();
+    previewUrl.current = URL.createObjectURL(selected);
     setFile(selected);
-    setPreview(URL.createObjectURL(selected));
+    setPreview(previewUrl.current);
     setRemoveAvatar(false);
   }
 
@@ -106,6 +118,7 @@ export function ProfileSheet({
               <Button
                 variant="ghost"
                 onClick={() => {
+                  releasePreview();
                   setFile(null);
                   setPreview(null);
                   setRemoveAvatar(true);

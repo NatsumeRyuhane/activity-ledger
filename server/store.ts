@@ -39,21 +39,20 @@ export class EventStore {
     };
   }
 
-  createActivity(activityId: string, createdAt: number, payload: LedgerEventPayload): void {
+  createActivity(
+    activityId: string,
+    createdAt: number,
+    payload: LedgerEventPayload,
+    adminPasswordHash: string | null,
+  ): void {
     this.transaction(() => {
       this.db
-        .prepare("INSERT INTO activities (id, created_at, admin_password_hash) VALUES (?, ?, NULL)")
-        .run(activityId, createdAt);
+        .prepare("INSERT INTO activities (id, created_at, admin_password_hash) VALUES (?, ?, ?)")
+        .run(activityId, createdAt, adminPasswordHash);
       this.appendInternal(activityId, [
         { type: "activity.created", actorIdentityId: null, payload, createdAt },
       ]);
     });
-  }
-
-  setAdminPasswordHash(activityId: string, hash: string | null): void {
-    this.db
-      .prepare("UPDATE activities SET admin_password_hash = ? WHERE id = ?")
-      .run(hash, activityId);
   }
 
   maxSeq(activityId: string): number {
@@ -79,10 +78,16 @@ export class EventStore {
     }));
   }
 
-  append(activityId: string, events: NewEvent[]): LedgerEvent[] {
-    if (events.length === 0) return [];
+  /** Appends events and (optionally) the admin password hash in one transaction. */
+  append(activityId: string, events: NewEvent[], adminPasswordHash?: string): LedgerEvent[] {
+    if (events.length === 0 && adminPasswordHash === undefined) return [];
     let appended: LedgerEvent[] = [];
     this.transaction(() => {
+      if (adminPasswordHash !== undefined) {
+        this.db
+          .prepare("UPDATE activities SET admin_password_hash = ? WHERE id = ?")
+          .run(adminPasswordHash, activityId);
+      }
       appended = this.appendInternal(activityId, events);
     });
     return appended;

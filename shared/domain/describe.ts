@@ -65,12 +65,13 @@ export function describeEvent(event: LedgerEvent, ctx: EventContext): EventDescr
     }
     case "payment.created": {
       const payload = event.payload as PaymentCreatedPayload;
+      // The payload always carries the original title; the map only helps when
+      // a later rename happened (or when the payment can no longer be found).
+      const title = payload.payment.title ?? paymentTitle(payload.payment.id);
       return {
         actorIdentityId: actor,
         parts: [
-          text(
-            `创建了${paymentLabel(payload.payment.id)}，总额 ${formatYuan(payerTotal(payload.payment))}`,
-          ),
+          text(`创建了付款「${title}」，总额 ${formatYuan(payerTotal(payload.payment))}`),
         ],
       };
     }
