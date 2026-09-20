@@ -677,6 +677,70 @@ describe("payment edits", () => {
     ).toBeGreaterThan(1);
   });
 
+  it("refuses edits after the activity is closed", async () => {
+    const { activityId, identityId: captain } = await createActivity("hunter2");
+    const alice = await addIdentity(activityId, captain, "Alice");
+    const view = await createPayment(activityId, alice, {
+      payers: [{ identityId: alice, amountCents: 30000 }],
+      participants: [{ identityId: alice }],
+    });
+    const paymentId = view.payments[0].id;
+
+    await decline(activityId, captain, paymentId);
+    expect((await closeActivity(activityId, captain, "hunter2")).status).toBe(200);
+
+    const edit = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: alice,
+      command: {
+        type: "payment.edit",
+        paymentId,
+        title: "关闭后修改",
+        splitMode: "equal",
+        payers: [{ identityId: alice, amountCents: 30000 }],
+        participants: [{ identityId: alice }],
+      },
+    });
+    expect(edit.status).toBe(400);
+    expect(edit.body.error.code).toBe("activity_closed");
+  });
+
+  it("rejects duplicate identities in payment payloads", async () => {
+    const { activityId, identityId: captain } = await createActivity();
+    const alice = await addIdentity(activityId, captain, "Alice");
+
+    const duplicated = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: alice,
+      command: {
+        type: "payment.create",
+        title: "重复",
+        splitMode: "equal",
+        payers: [
+          { identityId: alice, amountCents: 10000 },
+          { identityId: alice, amountCents: 20000 },
+        ],
+        participants: [{ identityId: alice }],
+      },
+    });
+    expect(duplicated.status).toBe(400);
+    expect(duplicated.body.error.message).toContain("付款人不能重复");
+
+    await createPayment(activityId, alice, { participants: [{ identityId: alice }] });
+    const paymentId = (await get(`/api/activities/${activityId}`)).body.payments[0].id;
+    const duplicatedEdit = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: alice,
+      command: {
+        type: "payment.edit",
+        paymentId,
+        title: "重复参与人",
+        splitMode: "equal",
+        payers: [{ identityId: alice, amountCents: 30000 }],
+        participants: [{ identityId: alice }, { identityId: alice }],
+      },
+    });
+    expect(duplicatedEdit.status).toBe(400);
+    expect(duplicatedEdit.body.error.message).toContain("参与人不能重复");
+  });
+
   it("rejects a batch edit from non-managers and invalid targets", async () => {
     const { activityId, identityId: captain } = await createActivity();
     const alice = await addIdentity(activityId, captain, "Alice");

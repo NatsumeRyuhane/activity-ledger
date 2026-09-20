@@ -162,6 +162,14 @@ export function applyCommand(
 
   const events = store.loadEvents(activityId);
   const state = replay(events);
+  const activity = requireState(state);
+  if (activity.closedAt && command.type !== "rollback") {
+    throw new AppError(
+      400,
+      "activity_closed",
+      "活动已关闭，如需修改请先在「记录」中回滚关闭操作",
+    );
+  }
   const built = buildEvents(store, row, state, actor, command);
   if (built.events.length > 0 || built.adminPasswordHash !== undefined) {
     store.append(activityId, built.events, built.adminPasswordHash);
@@ -388,14 +396,6 @@ function buildEvent(
   command: Exclude<Command, { type: "activity.close" } | { type: "payment.edit" }>,
 ): BuiltEvent | null {
   const activity = requireState(state);
-  if (activity.closedAt && command.type !== "rollback") {
-    throw new AppError(
-      400,
-      "activity_closed",
-      "活动已关闭，如需修改请先在「记录」中回滚关闭操作",
-    );
-  }
-
   const now = Date.now();
   const actorId = actor.identityId;
   const base = { actorIdentityId: actorId, createdAt: now };

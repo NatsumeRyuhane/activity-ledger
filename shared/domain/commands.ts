@@ -6,6 +6,10 @@ const dateString = z
   .max(MAX_DATE_LENGTH)
   .regex(/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?)?$/, "时间格式不正确");
 
+function uniqueIds(items: { identityId: string }[]): boolean {
+  return new Set(items.map((item) => item.identityId)).size === items.length;
+}
+
 export const paymentPatchSchema = z
   .object({
     title: z.string().trim().min(1, "标题不能为空").max(40).optional(),
@@ -55,7 +59,9 @@ export const commandSchema = z.discriminatedUnion("type", [
         }),
       )
       .max(100),
-  }),
+  })
+    .refine((value) => uniqueIds(value.payers), "付款人不能重复")
+    .refine((value) => uniqueIds(value.participants), "参与人不能重复"),
   z.object({
     type: z.literal("payment.edit"),
     paymentId: z.string().min(1),
@@ -80,7 +86,9 @@ export const commandSchema = z.discriminatedUnion("type", [
         }),
       )
       .max(100),
-  }),
+  })
+    .refine((value) => uniqueIds(value.payers), "付款人不能重复")
+    .refine((value) => uniqueIds(value.participants), "参与人不能重复"),
   z.object({
     type: z.literal("payment.update"),
     paymentId: z.string().min(1),

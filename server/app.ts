@@ -136,7 +136,7 @@ function clientKey(c: Context, activityId: string): { ip: string; activity: stri
   } catch {
     // Running without the Node adapter (e.g. tests): fall back to a shared key.
   }
-  return { ip: `ip:${activityId}:${address}`, activity: `activity:${activityId}` };
+  return { ip: `ip:${address}`, activity: `activity:${activityId}` };
 }
 
 function assertPasswordAttemptAllowed(c: Context, activityId: string): void {
