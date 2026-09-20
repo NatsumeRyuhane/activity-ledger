@@ -24,7 +24,8 @@ services:
       app:
         condition: service_healthy
     ports:
-      - "${HTTP_PORT:-8080}:80"
+      # 只绑定回环：公网入口交给宿主机 nginx，避免多开公网端口
+      - "127.0.0.1:${HTTP_PORT:-8080}:80"
     volumes:
       - ./deploy/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
     environment:
