@@ -48,6 +48,37 @@ export function createActivity(input: {
   });
 }
 
+export function createIdentity(activityId: string, name: string) {
+  return request<{ view: ActivityView; identityId: string }>(
+    `/api/activities/${activityId}/identities`,
+    { method: "POST", body: JSON.stringify({ name }) },
+  );
+}
+
+export async function uploadAvatar(file: File): Promise<string> {
+  let response: Response;
+  try {
+    response = await fetch("/api/avatars", {
+      method: "POST",
+      headers: { "content-type": file.type || "application/octet-stream" },
+      body: file,
+    });
+  } catch {
+    throw new ApiError("network", "网络连接失败，请检查网络后重试", 0);
+  }
+  const data = (await response.json().catch(() => null)) as
+    | { avatar?: string; error?: { code?: string; message?: string } }
+    | null;
+  if (!response.ok || !data?.avatar) {
+    throw new ApiError(
+      data?.error?.code ?? "unknown",
+      data?.error?.message ?? "头像上传失败，请稍后再试",
+      response.status,
+    );
+  }
+  return data.avatar;
+}
+
 export function fetchActivity(activityId: string) {
   return request<ActivityView>(`/api/activities/${activityId}`);
 }

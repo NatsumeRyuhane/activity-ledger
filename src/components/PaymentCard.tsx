@@ -1,9 +1,8 @@
-import { formatYuan, payerTotal, type Payment } from "@shared/domain";
-import { IdentityBadge } from "@/components/IdentityBadge";
+import { formatYuan, payerTotal, type ActivityView, type Payment } from "@shared/domain";
+import { UserPill, type AvatarIdentity } from "@/components/IdentityBadge";
 import { Badge, Card } from "@/components/ui";
-import { payerSummary, pendingPeopleCount, isIncomplete } from "@/lib/payment";
+import { isIncomplete, pendingPeopleCount } from "@/lib/payment";
 import { formatDateTime } from "@/lib/format";
-import type { ActivityView } from "@shared/domain";
 
 export function PaymentCard({
   payment,
@@ -15,13 +14,15 @@ export function PaymentCard({
   onClick: () => void;
 }) {
   const names = new Map(view.identities.map((identity) => [identity.id, identity]));
-  const nameOf = (id: string) => names.get(id)?.name ?? "未知";
+  const identityOf = (id: string): AvatarIdentity =>
+    names.get(id) ?? { name: "未知", color: "#9ca3af" };
   const pending = pendingPeopleCount(
     payment,
     view.identities.map((identity) => identity.id),
   );
   const incomplete = isIncomplete(payment);
-  const visibleParticipants = payment.participants.slice(0, 4);
+  const payers = payment.payers.slice(0, 2);
+  const participants = payment.participants.slice(0, 3);
 
   return (
     <button type="button" onClick={onClick} className="w-full text-left">
@@ -45,31 +46,36 @@ export function PaymentCard({
               ) : null}
             </div>
 
-            <p className="mt-0.5 text-xs text-gray-400">
-              {payment.paidAt ? formatDateTime(payment.paidAt) : ""}
-              {payment.paidAt ? " · " : ""}
-              {payerSummary(payment, nameOf)}
-            </p>
+            {payment.paidAt ? (
+              <p className="mt-0.5 text-xs text-gray-400">{formatDateTime(payment.paidAt)}</p>
+            ) : null}
 
-            {visibleParticipants.length > 0 ? (
-              <div className="mt-2 flex items-center gap-1.5">
-                <div className="flex -space-x-1.5">
-                  {visibleParticipants.map((participant) => {
-                    const identity = names.get(participant.identityId);
-                    if (!identity) return null;
-                    return (
-                      <span key={participant.identityId} className="rounded-full ring-2 ring-white">
-                        <IdentityBadge identity={identity} size="sm" />
-                      </span>
-                    );
-                  })}
-                </div>
-                <span className="text-xs text-gray-400">
-                  {payment.participants.length} 人参与
-                  {payment.participants.length > visibleParticipants.length
-                    ? ` · 等 ${payment.participants.length} 人`
-                    : ""}
-                </span>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-gray-400">付款人</span>
+              {payers.map((payer) => (
+                <UserPill key={payer.identityId} identity={identityOf(payer.identityId)} size="sm" />
+              ))}
+              {payment.payers.length > payers.length ? (
+                <span className="text-xs text-gray-400">+{payment.payers.length - payers.length}</span>
+              ) : null}
+            </div>
+
+            {payment.participants.length > 0 ? (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <span className="text-xs text-gray-400">参与</span>
+                {participants.map((participant) => (
+                  <UserPill
+                    key={participant.identityId}
+                    identity={identityOf(participant.identityId)}
+                    size="sm"
+                    muted={!participant.confirmed}
+                  />
+                ))}
+                {payment.participants.length > participants.length ? (
+                  <span className="text-xs text-gray-400">
+                    +{payment.participants.length - participants.length}
+                  </span>
+                ) : null}
               </div>
             ) : null}
           </div>

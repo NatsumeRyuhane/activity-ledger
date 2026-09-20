@@ -7,8 +7,9 @@ import {
   type Payment,
   type SplitMode,
 } from "@shared/domain";
-import { IdentityBadge } from "@/components/IdentityBadge";
-import { Button, Field, Input, Segmented, Select, Sheet, Textarea } from "@/components/ui";
+import { Avatar, UserPill } from "@/components/IdentityBadge";
+import { IdentityPicker } from "@/components/IdentityPicker";
+import { Button, Field, Input, Segmented, Sheet, Textarea } from "@/components/ui";
 import { nowInputValue } from "@/lib/format";
 
 export interface PaymentFormValue {
@@ -46,6 +47,14 @@ export function PaymentFormSheet({
   onSubmit: (value: PaymentFormValue) => void;
 }) {
   const identities = view.identities;
+  const identityOf = (id: string) =>
+    identities.find((identity) => identity.id === id) ?? {
+      id,
+      name: "未知",
+      color: "#9ca3af",
+      createdAt: 0,
+      isCreator: false,
+    };
   const lockedPayerId = payment ? payment.createdBy : me.id;
   const [title, setTitle] = useState(payment?.title ?? "");
   const [paidAt, setPaidAt] = useState(payment?.paidAt ?? nowInputValue());
@@ -240,30 +249,31 @@ export function PaymentFormSheet({
                   key={`${payer.identityId}-${index}`}
                   className="grid grid-cols-[minmax(0,1fr)_6.5rem_2.5rem] items-center gap-2"
                 >
-                  <Select
-                    value={payer.identityId}
-                    disabled={isLocked}
-                    onChange={(event) =>
-                      setPayers((current) =>
-                        current.map((item, i) =>
-                          i === index ? { ...item, identityId: event.target.value } : item,
-                        ),
-                      )
-                    }
-                    className="min-w-0 disabled:bg-gray-100"
-                  >
-                    {identities.map((identity) => (
-                      <option
-                        key={identity.id}
-                        value={identity.id}
-                        disabled={payers.some(
-                          (item, i) => i !== index && item.identityId === identity.id,
-                        )}
-                      >
-                        {identity.name}
-                      </option>
-                    ))}
-                  </Select>
+                  {isLocked ? (
+                    <span className="flex w-full min-w-0 items-center gap-1.5 rounded-full bg-gray-100 py-0.5 pr-3 pl-0.5">
+                      <Avatar identity={identityOf(payer.identityId)} size="sm" />
+                      <span className="min-w-0 flex-1 truncate text-sm text-gray-600">
+                        {identityOf(payer.identityId).name}
+                      </span>
+                    </span>
+                  ) : (
+                    <IdentityPicker
+                      value={identityOf(payer.identityId)}
+                      options={identities.filter(
+                        (identity) =>
+                          !payers.some(
+                            (item, i) => i !== index && item.identityId === identity.id,
+                          ),
+                      )}
+                      onSelect={(identityId) =>
+                        setPayers((current) =>
+                          current.map((item, i) =>
+                            i === index ? { ...item, identityId } : item,
+                          ),
+                        )
+                      }
+                    />
+                  )}
                   <Input
                     value={payer.amount}
                     onChange={(event) =>
@@ -342,19 +352,14 @@ export function PaymentFormSheet({
                   (participant) => participant.identityId === identity.id,
                 );
                 return (
-                  <button
+                  <UserPill
                     key={identity.id}
-                    type="button"
+                    identity={identity}
+                    size="sm"
+                    selected={selected}
+                    muted={!selected}
                     onClick={() => toggleParticipant(identity.id)}
-                    className={`flex items-center gap-1.5 rounded-full border py-1 pr-3 pl-1 text-sm transition-colors ${
-                      selected
-                        ? "border-teal-500 bg-teal-50 text-teal-700"
-                        : "border-gray-200 bg-white text-gray-500"
-                    }`}
-                  >
-                    <IdentityBadge identity={identity} size="sm" />
-                    {identity.name}
-                  </button>
+                  />
                 );
               })}
             </div>
@@ -365,29 +370,22 @@ export function PaymentFormSheet({
                   key={`${participant.identityId}-${index}`}
                   className="grid grid-cols-[minmax(0,1fr)_6.5rem_2.5rem] items-center gap-2"
                 >
-                  <Select
-                    value={participant.identityId}
-                    onChange={(event) =>
+                  <IdentityPicker
+                    value={identityOf(participant.identityId)}
+                    options={identities.filter(
+                      (identity) =>
+                        !participants.some(
+                          (item, i) => i !== index && item.identityId === identity.id,
+                        ),
+                    )}
+                    onSelect={(identityId) =>
                       setParticipants((current) =>
                         current.map((item, i) =>
-                          i === index ? { ...item, identityId: event.target.value } : item,
+                          i === index ? { ...item, identityId } : item,
                         ),
                       )
                     }
-                    className="min-w-0 flex-1"
-                  >
-                    {identities.map((identity) => (
-                      <option
-                        key={identity.id}
-                        value={identity.id}
-                        disabled={participants.some(
-                          (item, i) => i !== index && item.identityId === identity.id,
-                        )}
-                      >
-                        {identity.name}
-                      </option>
-                    ))}
-                  </Select>
+                  />
                   <Input
                     value={participant.share}
                     onChange={(event) =>

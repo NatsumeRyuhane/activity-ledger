@@ -17,6 +17,8 @@ export interface Identity {
   id: IdentityId;
   name: string;
   color: string;
+  /** Data URL of the 100x100 WebP avatar, when one is set. */
+  avatar?: string;
   createdAt: number;
   isCreator: boolean;
 }
@@ -57,6 +59,7 @@ export interface LedgerState {
 export type LedgerEventType =
   | "activity.created"
   | "identity.created"
+  | "identity.updated"
   | "payment.created"
   | "payment.updated"
   | "payment.voided"
@@ -77,6 +80,12 @@ export interface ActivityCreatedPayload {
 
 export interface IdentityCreatedPayload {
   identity: Identity;
+}
+
+export interface IdentityUpdatedPayload {
+  identityId: IdentityId;
+  name?: string;
+  avatar?: string | null;
 }
 
 export interface PaymentCreatedPayload {
@@ -146,6 +155,7 @@ export interface RollbackPayload {
 export type LedgerEventPayload =
   | ActivityCreatedPayload
   | IdentityCreatedPayload
+  | IdentityUpdatedPayload
   | PaymentCreatedPayload
   | PaymentUpdatedPayload
   | PaymentVoidedPayload

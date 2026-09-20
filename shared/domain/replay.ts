@@ -70,6 +70,18 @@ export function fold(events: LedgerEvent[]): LedgerState {
         break;
       }
 
+      case "identity.updated": {
+        const payload = event.payload as import("./types").IdentityUpdatedPayload;
+        const identity = state.identities.find((item) => item.id === payload.identityId);
+        if (!identity) break;
+        if (payload.name !== undefined) identity.name = payload.name;
+        if (payload.avatar !== undefined) {
+          if (payload.avatar === null) delete identity.avatar;
+          else identity.avatar = payload.avatar;
+        }
+        break;
+      }
+
       case "payment.created": {
         const payload = event.payload as import("./types").PaymentCreatedPayload;
         state.payments.push(normalizePayment(payload.payment));

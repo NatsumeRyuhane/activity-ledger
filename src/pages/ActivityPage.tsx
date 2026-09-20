@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ApiError } from "@/lib/api";
 import { useActivity } from "@/hooks/useActivity";
-import { IdentityBadge } from "@/components/IdentityBadge";
+import { UserPill } from "@/components/IdentityBadge";
 import { IdentitySheet } from "@/components/IdentitySheet";
 import { Button, EmptyState, Spinner } from "@/components/ui";
 import { useToast } from "@/components/toast-context";
@@ -31,7 +31,7 @@ export default function ActivityPage() {
   const navigate = useNavigate();
   const toast = useToast();
   const controller = useActivity(id);
-  const { view, status, me, setIdentity, run, notFound, error, reload } = controller;
+  const { view, status, me, setIdentity, join, notFound, error, reload } = controller;
   const [tab, setTab] = useState<TabKey>("payments");
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [adminPassword, setAdminPassword] = useState<string | null>(() =>
@@ -52,15 +52,9 @@ export default function ActivityPage() {
   }
 
   async function handleCreateIdentity(name: string) {
-    if (!view) return;
-    const before = new Set(view.identities.map((identity) => identity.id));
     try {
-      const next = await run({ type: "identity.create", name });
-      const created = next.identities.find((identity) => !before.has(identity.id));
-      if (created) {
-        setIdentity(created.id);
-        setSwitcherOpen(false);
-      }
+      await join(name);
+      setSwitcherOpen(false);
     } catch (caught) {
       toast.show(caught instanceof ApiError ? caught.message : "创建身份失败", "error");
     }
@@ -175,14 +169,7 @@ export default function ActivityPage() {
           </button>
 
           {me ? (
-            <button
-              type="button"
-              onClick={() => setSwitcherOpen(true)}
-              className="flex h-10 max-w-28 items-center gap-1.5 rounded-full pr-2 pl-1 hover:bg-gray-100"
-            >
-              <IdentityBadge identity={me} size="sm" />
-              <span className="truncate text-sm font-medium text-gray-700">{me.name}</span>
-            </button>
+            <UserPill identity={me} size="sm" onClick={() => setSwitcherOpen(true)} />
           ) : null}
         </div>
       </header>
@@ -236,6 +223,7 @@ export default function ActivityPage() {
         identities={view.identities}
         currentId={me?.id ?? null}
         busy={controller.busy}
+        run={controller.run}
         onSelect={(identityId) => {
           setIdentity(identityId);
           setSwitcherOpen(false);

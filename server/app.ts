@@ -1,6 +1,13 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
-import { AppError, applyCommand, createActivity, getActivityView } from "./service";
+import { toAvatarDataUrl } from "./avatar";
+import {
+  AppError,
+  applyCommand,
+  createActivity,
+  createIdentity,
+  getActivityView,
+} from "./service";
 import type { EventStore } from "./store";
 
 export function createApp(store: EventStore) {
@@ -18,6 +25,31 @@ export function createApp(store: EventStore) {
         password: body.password === undefined || body.password === null ? undefined : String(body.password),
       });
       return c.json(result, 201);
+    });
+  });
+
+  app.post("/api/activities/:id/identities", async (c) => {
+    return run(c, async () => {
+      const body = await readJson(c.req.raw);
+      const result = createIdentity(store, c.req.param("id"), String(body.name ?? ""));
+      return c.json(result, 201);
+    });
+  });
+
+  app.post("/api/avatars", async (c) => {
+    return run(c, async () => {
+      const contentType = c.req.header("content-type") ?? "";
+      if (!contentType.startsWith("image/")) {
+        throw new AppError(400, "invalid_image", "请上传图片文件");
+      }
+      const buffer = Buffer.from(await c.req.arrayBuffer());
+      if (buffer.length === 0) {
+        throw new AppError(400, "invalid_image", "图片内容为空");
+      }
+      if (buffer.length > 10 * 1024 * 1024) {
+        throw new AppError(400, "image_too_large", "图片不能超过 10MB");
+      }
+      return c.json({ avatar: await toAvatarDataUrl(buffer) });
     });
   });
 

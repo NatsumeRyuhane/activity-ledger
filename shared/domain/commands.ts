@@ -16,10 +16,22 @@ export const paymentPatchSchema = z
   .refine((patch) => Object.keys(patch).length > 0, "没有需要修改的内容");
 
 export const commandSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("identity.create"),
-    name: z.string().trim().min(1, "请输入名字").max(20, "名字太长了"),
-  }),
+  z
+    .object({
+      type: z.literal("identity.update"),
+      identityId: z.string().min(1),
+      name: z.string().trim().min(1, "请输入名字").max(20, "名字太长了").optional(),
+      avatar: z
+        .string()
+        .max(300_000)
+        .regex(/^data:image\/webp;base64,[A-Za-z0-9+/=]+$/, "头像格式不正确")
+        .nullable()
+        .optional(),
+    })
+    .refine(
+      (value) => value.name !== undefined || value.avatar !== undefined,
+      "没有需要修改的内容",
+    ),
   z.object({
     type: z.literal("payment.create"),
     title: z.string().trim().min(1, "请输入标题").max(40, "标题太长了"),

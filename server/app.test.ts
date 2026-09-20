@@ -35,13 +35,9 @@ async function createActivity(password?: string) {
   return body as { activityId: string; identityId: string };
 }
 
-async function addIdentity(activityId: string, actor: string, name: string) {
-  const { body } = await post(`/api/activities/${activityId}/commands`, {
-    actorIdentityId: actor,
-    command: { type: "identity.create", name },
-  });
-  const identity = body.identities.find((item: any) => item.name === name);
-  return identity.id as string;
+async function addIdentity(activityId: string, _actor: string, name: string) {
+  const { body } = await post(`/api/activities/${activityId}/identities`, { name });
+  return body.identityId as string;
 }
 
 async function decline(activityId: string, actor: string, paymentId: string) {
@@ -95,11 +91,35 @@ describe("activities", () => {
     expect(status).toBe(404);
   });
 
+  it("lets anyone with the link join by creating an identity", async () => {
+    const { activityId, identityId: captain } = await createActivity();
+    await createPayment(activityId, captain, {
+      participants: [{ identityId: captain }],
+    });
+
+    const { status, body } = await post(`/api/activities/${activityId}/identities`, {
+      name: "路人甲",
+    });
+    expect(status).toBe(201);
+    expect(body.identityId).toBeTruthy();
+    expect(body.view.identities.map((i: any) => i.name)).toContain("路人甲");
+    // A brand new member has not reacted to the existing payment yet.
+    expect(body.view.settlement.canSettle).toBe(false);
+    expect(
+      body.view.settlement.pending.some(
+        (entry: any) => entry.identityId === body.identityId && entry.role === "unknown",
+      ),
+    ).toBe(true);
+
+    const empty = await post(`/api/activities/${activityId}/identities`, { name: "  " });
+    expect(empty.status).toBe(400);
+  });
+
   it("rejects commands from unknown identities", async () => {
     const { activityId } = await createActivity();
     const { status, body } = await post(`/api/activities/${activityId}/commands`, {
       actorIdentityId: "nobody",
-      command: { type: "identity.create", name: "Bob" },
+      command: { type: "identity.update", identityId: "nobody", name: "Bob" },
     });
     expect(status).toBe(403);
     expect(body.error.code).toBe("unknown_identity");
@@ -112,6 +132,106 @@ describe("activities", () => {
       command: { type: "payment.create", title: "" },
     });
     expect(status).toBe(400);
+  });
+});
+
+describe("profiles and avatars", () => {
+  it("lets people rename themselves and rejects renaming others", async () => {
+    const { activityId, identityId: captain } = await createActivity();
+    const alice = await addIdentity(activityId, captain, "Alice");
+
+    const own = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: alice,
+      command: { type: "identity.update", identityId: alice, name: "爱丽丝" },
+    });
+    expect(own.status).toBe(200);
+    expect(own.body.identities.find((i: any) => i.id === alice).name).toBe("爱丽丝");
+
+    const other = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: alice,
+      command: { type: "identity.update", identityId: captain, name: "黑客" },
+    });
+    expect(other.status).toBe(403);
+    expect(other.body.error.code).toBe("not_self");
+  });
+
+  it("sets and clears an avatar through identity updates", async () => {
+    const { activityId, identityId: captain } = await createActivity();
+    const dataUrl = `data:image/webp;base64,${Buffer.from("fake").toString("base64")}`;
+
+    const set = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: captain,
+      command: { type: "identity.update", identityId: captain, avatar: dataUrl },
+    });
+    expect(set.status).toBe(200);
+    expect(set.body.identities.find((i: any) => i.id === captain).avatar).toBe(dataUrl);
+
+    const clear = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: captain,
+      command: { type: "identity.update", identityId: captain, avatar: null },
+    });
+    expect(clear.status).toBe(200);
+    expect(clear.body.identities.find((i: any) => i.id === captain).avatar).toBeUndefined();
+  });
+
+  it("rejects invalid avatar payloads", async () => {
+    const { activityId, identityId: captain } = await createActivity();
+    const { status } = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: captain,
+      command: {
+        type: "identity.update",
+        identityId: captain,
+        avatar: "data:image/png;base64,AAAA",
+      },
+    });
+    expect(status).toBe(400);
+  });
+
+  it("keeps avatar bytes out of the client event log", async () => {
+    const { activityId, identityId: captain } = await createActivity();
+    const dataUrl = `data:image/webp;base64,${Buffer.from("fake").toString("base64")}`;
+    await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: captain,
+      command: { type: "identity.update", identityId: captain, avatar: dataUrl },
+    });
+
+    const { body } = await get(`/api/activities/${activityId}`);
+    expect(body.identities.find((i: any) => i.id === captain).avatar).toBe(dataUrl);
+    const updateEvent = body.events.find((e: any) => e.type === "identity.updated");
+    expect(updateEvent.payload.avatar).toBe("[图片]");
+  });
+
+  it("compresses uploads to a 100x100 webp data url", async () => {
+    const { default: sharp } = await import("sharp");
+    const source = await sharp({
+      create: { width: 320, height: 180, channels: 3, background: "#3366ff" },
+    })
+      .png()
+      .toBuffer();
+
+    const response = await app.request("/api/avatars", {
+      method: "POST",
+      headers: { "content-type": "image/png" },
+      body: source,
+    });
+    expect(response.status).toBe(200);
+    const { avatar } = (await response.json()) as { avatar: string };
+    expect(avatar.startsWith("data:image/webp;base64,")).toBe(true);
+
+    const bytes = Buffer.from(avatar.split(",")[1], "base64");
+    const metadata = await sharp(bytes).metadata();
+    expect(metadata.format).toBe("webp");
+    expect(metadata.width).toBe(100);
+    expect(metadata.height).toBe(100);
+  });
+
+  it("rejects non-image uploads", async () => {
+    const response = await app.request("/api/avatars", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: "hello",
+    });
+    expect(response.status).toBe(400);
   });
 });
 

@@ -1,5 +1,5 @@
 import { formatYuan } from "@shared/domain";
-import { IdentityBadge } from "@/components/IdentityBadge";
+import { UserPill, type AvatarIdentity } from "@/components/IdentityBadge";
 import { Card, EmptyState } from "@/components/ui";
 import { useToast } from "@/components/toast-context";
 import { identityNameMap, settlementBlockers } from "@/lib/payment";
@@ -13,7 +13,8 @@ export function SettlementTab({ controller }: { controller: ActivityController }
   const { settlement, payments, identities } = view;
   const names = identityNameMap(identities);
   const nameOf = (id: string) => names.get(id) ?? "未知";
-  const identityOf = (id: string) => identities.find((identity) => identity.id === id);
+  const identityOf = (id: string): AvatarIdentity =>
+    identities.find((identity) => identity.id === id) ?? { name: "未知", color: "#9ca3af" };
   const titles = new Map(payments.map((payment) => [payment.id, payment.title]));
   const blockers = settlementBlockers(
     settlement.pending,
@@ -91,13 +92,12 @@ export function SettlementTab({ controller }: { controller: ActivityController }
             <h2 className="mb-2 px-1 text-sm font-medium text-gray-500">每人余额</h2>
             <Card className="divide-y divide-gray-100">
               {settlement.balances.map((balance) => (
-                <div key={balance.identityId} className="flex items-center gap-3 px-4 py-3">
-                  {identityOf(balance.identityId) ? (
-                    <IdentityBadge identity={identityOf(balance.identityId)!} size="sm" />
-                  ) : null}
-                  <span className="flex-1 truncate text-sm text-gray-800">
-                    {nameOf(balance.identityId)}
-                  </span>
+                <div key={balance.identityId} className="flex items-center gap-3 px-3 py-2.5">
+                  <UserPill
+                    identity={identityOf(balance.identityId)}
+                    size="sm"
+                    className="min-w-0 flex-1"
+                  />
                   {balance.balanceCents > 0 ? (
                     <span className="font-mono text-sm font-semibold tabular-nums text-emerald-600">
                       应收 {formatYuan(balance.balanceCents)}
@@ -135,9 +135,9 @@ export function SettlementTab({ controller }: { controller: ActivityController }
             ) : (
               <Card className="divide-y divide-gray-100">
                 {settlement.transfers.map((transfer, index) => (
-                  <div key={`${transfer.from}-${transfer.to}-${index}`} className="flex items-center gap-3 px-4 py-3">
-                    <div className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-gray-800">
-                      <span className="truncate font-medium">{nameOf(transfer.from)}</span>
+                  <div key={`${transfer.from}-${transfer.to}-${index}`} className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5">
+                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                      <UserPill identity={identityOf(transfer.from)} size="sm" />
                       <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4 shrink-0 text-gray-400">
                         <path
                           d="M4 10h12m-4-4 4 4-4 4"
@@ -147,7 +147,7 @@ export function SettlementTab({ controller }: { controller: ActivityController }
                           strokeLinejoin="round"
                         />
                       </svg>
-                      <span className="truncate font-medium">{nameOf(transfer.to)}</span>
+                      <UserPill identity={identityOf(transfer.to)} size="sm" />
                     </div>
                     <span className="shrink-0 font-mono text-sm font-semibold tabular-nums text-gray-900">
                       {formatYuan(transfer.amountCents)}

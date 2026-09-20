@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ActivityView } from "@shared/domain";
 import type { CommandInput } from "@shared/domain/commands";
-import { ApiError, fetchActivity, sendCommand } from "@/lib/api";
+import { ApiError, createIdentity, fetchActivity, sendCommand } from "@/lib/api";
 import {
   clearIdentityId,
   loadAdminPassword,
@@ -81,6 +81,18 @@ export function useActivity(activityId: string) {
     [activityId],
   );
 
+  /** Anyone with the link can join: creates an identity and adopts it. */
+  const join = useCallback(
+    async (name: string) => {
+      const result = await createIdentity(activityId, name);
+      setView(result.view);
+      saveIdentityId(activityId, result.identityId);
+      setIdentityIdState(result.identityId);
+      return result.identityId;
+    },
+    [activityId],
+  );
+
   const run: RunCommand = useCallback(
     async (command, options) => {
       if (!identityId) {
@@ -113,6 +125,7 @@ export function useActivity(activityId: string) {
     identityId,
     me,
     setIdentity,
+    join,
     run,
     busy,
   };

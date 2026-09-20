@@ -9,8 +9,13 @@ import {
   involvementOf,
   pickIdentityColor,
   replay,
+  type ActivityCreatedPayload,
   type ActivityMeta,
   type Identity,
+  type IdentityCreatedPayload,
+  type IdentityUpdatedPayload,
+  type LedgerEvent,
+  type LedgerEventPayload,
   type LedgerState,
   type Payment,
 } from "@shared/domain";
@@ -90,6 +95,31 @@ export function getActivityView(store: EventStore, activityId: string): Activity
   return buildView(store, row);
 }
 
+/** Joining an activity needs no identity: anyone with the link may create one. */
+export function createIdentity(
+  store: EventStore,
+  activityId: string,
+  rawName: string,
+): { view: ActivityView; identityId: string } {
+  const row = requireActivity(store, activityId);
+  const name = rawName.trim();
+  if (!name) throw new AppError(400, "invalid_name", "请输入名字");
+  if (name.length > 20) throw new AppError(400, "invalid_name", "名字太长了");
+
+  const identityId = newIdentityId();
+  const identity: Identity = {
+    id: identityId,
+    name,
+    color: pickIdentityColor(`${name}:${identityId}`),
+    createdAt: Date.now(),
+    isCreator: false,
+  };
+  store.append(activityId, [
+    { type: "identity.created", actorIdentityId: null, payload: { identity } },
+  ]);
+  return { view: buildView(store, row), identityId: identity.id };
+}
+
 export function applyCommand(
   store: EventStore,
   activityId: string,
@@ -125,16 +155,20 @@ function buildEvent(
   const base = { actorIdentityId: actorId, createdAt: now };
 
   switch (command.type) {
-    case "identity.create": {
-      requireMember(state, actorId);
-      const identity: Identity = {
-        id: newIdentityId(),
-        name: command.name,
-        color: pickIdentityColor(`${command.name}:${actorId}`),
-        createdAt: now,
-        isCreator: false,
+    case "identity.update": {
+      const identity = requireIdentity(state, command.identityId);
+      if (identity.id !== actorId) {
+        throw new AppError(403, "not_self", "只能修改自己的名字和头像");
+      }
+      return {
+        ...base,
+        type: "identity.updated",
+        payload: {
+          identityId: identity.id,
+          ...(command.name !== undefined ? { name: command.name } : {}),
+          ...(command.avatar !== undefined ? { avatar: command.avatar } : {}),
+        },
       };
-      return { ...base, type: "identity.created", payload: { identity } };
     }
 
     case "payment.create": {
@@ -372,9 +406,35 @@ export function buildView(store: EventStore, row: ActivityRow): ActivityView {
       state.payments,
       state.identities.map((identity) => identity.id),
     ),
-    events: events.map((event) => ({ ...event, voided: voided.has(event.seq) })),
+    events: events.map((event) => ({
+      ...event,
+      payload: stripAvatarForClient(event),
+      voided: voided.has(event.seq),
+    })),
     headSeq: store.maxSeq(row.id),
   };
+}
+
+/** Avatars live on the identities, so event payloads can drop the image bytes. */
+function stripAvatarForClient(event: LedgerEvent): LedgerEventPayload {
+  if (event.type === "activity.created") {
+    const payload = event.payload as ActivityCreatedPayload;
+    const creator = { ...payload.creator };
+    delete creator.avatar;
+    return { ...payload, creator };
+  }
+  if (event.type === "identity.created") {
+    const payload = event.payload as IdentityCreatedPayload;
+    const identity = { ...payload.identity };
+    delete identity.avatar;
+    return { ...payload, identity };
+  }
+  if (event.type === "identity.updated") {
+    const payload = event.payload as IdentityUpdatedPayload;
+    if (payload.avatar === undefined) return payload;
+    return { ...payload, avatar: payload.avatar === null ? null : "[图片]" };
+  }
+  return event.payload;
 }
 
 function requireActivity(store: EventStore, activityId: string): ActivityRow {

@@ -10,7 +10,7 @@ import {
 } from "@shared/domain";
 import type { CommandInput } from "@shared/domain/commands";
 import { PAYMENT_ISSUE_LABELS } from "@shared/domain";
-import { IdentityBadge } from "@/components/IdentityBadge";
+import { UserPill, type AvatarIdentity } from "@/components/IdentityBadge";
 import { Badge, Button, Card, Input, Sheet } from "@/components/ui";
 import { useToast } from "@/components/toast-context";
 import { ApiError } from "@/lib/api";
@@ -41,6 +41,8 @@ export function PaymentDetailSheet({
 
   const names = new Map(view.identities.map((identity) => [identity.id, identity]));
   const nameOf = (id: string) => names.get(id)?.name ?? "未知";
+  const identityOf = (id: string): AvatarIdentity =>
+    names.get(id) ?? { name: "未知", color: "#9ca3af" };
   const involvement = involvementOf(payment, me.id);
   const responseState = myResponseState(payment, me.id);
   const isManager = payment.createdBy === me.id;
@@ -204,18 +206,18 @@ export function PaymentDetailSheet({
               const isMe = payer.identityId === me.id;
               return (
                 <div key={payer.identityId}>
-                  <div className="flex items-center gap-2 rounded-xl border border-gray-100 px-3 py-2.5">
-                    <IdentityBadge
-                      identity={names.get(payer.identityId) ?? { name: "?", color: "#999" }}
-                      size="sm"
+                  <div className="flex items-center gap-2 rounded-xl border border-gray-100 px-2.5 py-2">
+                    <UserPill
+                      identity={identityOf(payer.identityId)}
+                      className="min-w-0 flex-1"
+                      trailing={
+                        payer.identityId === payment.createdBy ? (
+                          <span className="shrink-0 text-xs text-gray-400">创建者</span>
+                        ) : isMe ? (
+                          <span className="shrink-0 text-xs text-teal-600">我</span>
+                        ) : null
+                      }
                     />
-                    <span className="min-w-0 flex-1 truncate text-sm text-gray-800">
-                      {nameOf(payer.identityId)}
-                      {payer.identityId === payment.createdBy ? (
-                        <span className="ml-1 text-xs text-gray-400">创建者</span>
-                      ) : null}
-                      {isMe ? <span className="ml-1 text-xs text-teal-600">我</span> : null}
-                    </span>
                     {!payer.confirmed ? <Badge tone="amber">待确认</Badge> : null}
                     <span className="font-mono text-sm font-medium tabular-nums text-gray-900">
                       {formatYuan(payer.amountCents)}
@@ -318,16 +320,15 @@ export function PaymentDetailSheet({
               return (
                 <div
                   key={participant.identityId}
-                  className="flex items-center gap-2 rounded-xl border border-gray-100 px-3 py-2.5"
+                  className="flex items-center gap-2 rounded-xl border border-gray-100 px-2.5 py-2"
                 >
-                  <IdentityBadge
-                    identity={names.get(participant.identityId) ?? { name: "?", color: "#999" }}
-                    size="sm"
+                  <UserPill
+                    identity={identityOf(participant.identityId)}
+                    className="min-w-0 flex-1"
+                    trailing={
+                      isMe ? <span className="shrink-0 text-xs text-teal-600">我</span> : null
+                    }
                   />
-                  <span className="min-w-0 flex-1 truncate text-sm text-gray-800">
-                    {nameOf(participant.identityId)}
-                    {isMe ? <span className="ml-1 text-xs text-teal-600">我</span> : null}
-                  </span>
                   {!participant.confirmed ? <Badge tone="amber">待确认</Badge> : null}
                   {share !== undefined ? (
                     <span className="font-mono text-sm font-medium tabular-nums text-gray-900">

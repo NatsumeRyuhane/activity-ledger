@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { describeEvent, type LedgerEvent } from "@shared/domain";
+import { UserPill, type AvatarIdentity } from "@/components/IdentityBadge";
 import { Badge, Button, Card, EmptyState, Field, Input, Sheet } from "@/components/ui";
 import { useToast } from "@/components/toast-context";
 import { ApiError } from "@/lib/api";
 import { formatRelative } from "@/lib/format";
-import { identityNameMap } from "@/lib/payment";
 import type { ActivityController } from "@/hooks/useActivity";
 
 export function HistoryTab({
@@ -27,8 +27,9 @@ export function HistoryTab({
   const activity = view.activity;
   const isCreator = me.id === activity.creatorIdentityId;
   const canRollback = isCreator && activity.hasPassword;
-  const names = identityNameMap(view.identities);
   const paymentTitles = new Map(view.payments.map((payment) => [payment.id, payment.title]));
+  const identityOf = (id: string): AvatarIdentity =>
+    view.identities.find((identity) => identity.id === id) ?? { name: "未知", color: "#9ca3af" };
   const events = [...view.events].sort((a, b) => b.seq - a.seq);
   const effectiveSeqs = view.events
     .filter((event) => !event.voided && event.type !== "rollback")
@@ -82,7 +83,7 @@ export function HistoryTab({
       ) : (
         <Card className="px-4 py-2">
           {events.map((event, index) => {
-            const text = describeEvent(event, { names, paymentTitles });
+            const description = describeEvent(event, { paymentTitles });
             const rollbackAble = canRollback && !event.voided && event.type !== "rollback";
             return (
               <div
@@ -103,13 +104,29 @@ export function HistoryTab({
                   />
                 </div>
                 <div className="min-w-0 flex-1 py-3.5">
-                  <p
-                    className={`text-sm leading-relaxed text-gray-700 ${
+                  <div
+                    className={`flex flex-wrap items-center gap-x-1.5 gap-y-1 ${
                       event.voided ? "line-through" : ""
                     }`}
                   >
-                    {text}
-                  </p>
+                    {description.actorIdentityId ? (
+                      <UserPill identity={identityOf(description.actorIdentityId)} size="sm" />
+                    ) : null}
+                    <p className="min-w-0 text-sm leading-relaxed text-gray-700">
+                      {description.parts.map((part, partIndex) =>
+                        part.kind === "text" ? (
+                          <span key={partIndex}>{part.value}</span>
+                        ) : (
+                          <UserPill
+                            key={partIndex}
+                            identity={identityOf(part.identityId)}
+                            size="sm"
+                            className="mx-0.5 align-middle"
+                          />
+                        ),
+                      )}
+                    </p>
+                  </div>
                   <div className="mt-1 flex items-center gap-2">
                     <span className="text-xs text-gray-400">
                       {formatRelative(event.createdAt)}
