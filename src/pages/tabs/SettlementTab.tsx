@@ -78,7 +78,7 @@ export function SettlementTab({
         <Card className="border-amber-200 bg-amber-50 p-4">
           <p className="text-sm font-semibold text-amber-900">活动已强制关闭</p>
           <p className="mt-1 text-xs leading-relaxed text-amber-800">
-            关闭时仍有成员没有回应，他们的未确认登记已被移除，并视为「未参与」。
+            关闭时仍有成员没有回应：已登记的付款与分摊按记录视为成立，没有任何登记且未表态的成员已标记为「未参与」。
           </p>
         </Card>
       ) : null}
@@ -181,7 +181,7 @@ export function SettlementTab({
                   ))}
                 </ul>
                 <p className="mt-2 text-xs leading-relaxed text-amber-700">
-                  所有人都确认后即可正常关闭；管理员也可以强制关闭，未确认的成员将按「未参与」处理。
+                  所有人都确认后即可正常关闭；管理员也可以强制关闭：已登记的付款与分摊按记录生效，没有任何登记且未表态的成员按「未参与」处理。
                 </p>
               </>
             ) : (
@@ -293,7 +293,8 @@ export function SettlementTab({
                 ))}
               </ul>
               <p className="text-xs text-amber-700">
-                未确认的付款/参与登记会被移除，相关成员按「未参与」处理，然后生成转账方案。
+                强制关闭后：上列已登记的付款与分摊按记录视为成立（相关成员自动标记为已确认）；
+                没有任何登记且未表态的成员按「未参与」处理，然后生成转账方案。
               </p>
             </div>
           ) : (

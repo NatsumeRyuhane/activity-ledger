@@ -182,45 +182,20 @@ function buildCloseEvents(
       );
     }
 
-    // Force close: drop unconfirmed enrollments of the payments that count.
-    const droppedPaymentIds = new Set<string>();
+    // Force close: assignments made by others are assumed to be true, so any
+    // unconfirmed enrollment simply becomes confirmed. Members with no
+    // assignment at all are treated as not participating.
     for (const payment of state.payments) {
       if (!isPaymentValid(payment)) continue;
+
+      const unconfirmed = new Set<string>();
       for (const payer of payment.payers) {
-        if (!payer.confirmed) {
-          newEvents.push({
-            type: "payer.removed",
-            actorIdentityId: actorId,
-            createdAt,
-            payload: { paymentId: payment.id, identityId: payer.identityId },
-          });
-          droppedPaymentIds.add(payment.id);
-        }
+        if (!payer.confirmed) unconfirmed.add(payer.identityId);
       }
       for (const participant of payment.participants) {
-        if (!participant.confirmed) {
-          newEvents.push({
-            type: "participant.removed",
-            actorIdentityId: actorId,
-            createdAt,
-            payload: { paymentId: payment.id, identityId: participant.identityId },
-          });
-          droppedPaymentIds.add(payment.id);
-        }
+        if (!participant.confirmed) unconfirmed.add(participant.identityId);
       }
-    }
-
-    // Dropping entries moves the equal split, which invalidates the remaining
-    // members. The admin is finalizing the ledger, so they count as confirmed.
-    for (const payment of state.payments) {
-      if (!droppedPaymentIds.has(payment.id)) continue;
-      const survivors = new Set<string>([
-        ...payment.payers.filter((payer) => payer.confirmed).map((payer) => payer.identityId),
-        ...payment.participants
-          .filter((participant) => participant.confirmed)
-          .map((participant) => participant.identityId),
-      ]);
-      for (const memberId of survivors) {
+      for (const memberId of unconfirmed) {
         newEvents.push({
           type: "entry.confirmed",
           actorIdentityId: actorId,
@@ -228,18 +203,10 @@ function buildCloseEvents(
           payload: { paymentId: payment.id, identityId: memberId },
         });
       }
-    }
 
-    // Everyone still uninvolved is treated as "not participating".
-    for (const payment of state.payments) {
-      if (!isPaymentValid(payment)) continue;
       const involved = new Set<string>([
-        ...payment.payers
-          .filter((payer) => payer.confirmed)
-          .map((payer) => payer.identityId),
-        ...payment.participants
-          .filter((participant) => participant.confirmed)
-          .map((participant) => participant.identityId),
+        ...payment.payers.map((payer) => payer.identityId),
+        ...payment.participants.map((participant) => participant.identityId),
       ]);
       const declined = new Set(payment.declinedBy);
       for (const memberId of memberIds) {

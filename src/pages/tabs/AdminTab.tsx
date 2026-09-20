@@ -259,7 +259,9 @@ export function AdminTab({
           <>
             <p className="mt-2 text-sm leading-relaxed text-gray-500">
               活动已关闭，账目已锁定，转账方案已生成。
-              {activity.closedForced ? "这次是强制关闭，未确认的成员已按「未参与」处理。" : ""}
+              {activity.closedForced
+                ? "这次是强制关闭：已登记的付款与分摊视为成立，没有任何登记且未表态的成员按「未参与」处理。"
+                : ""}
             </p>
             <p className="mt-2 text-xs leading-relaxed text-gray-400">
               如需修改，请在「记录」中回滚关闭操作（需要管理员密码）。

@@ -609,23 +609,18 @@ describe("closing the activity", () => {
     expect(blocked.body.error.code).toBe("pending_confirmations");
   });
 
-  it("lets the admin force close: unconfirmed entries are dropped as not participating", async () => {
+  it("treats recorded assignments as true on a forced close", async () => {
     const { activityId, identityId: captain } = await createActivity("hunter2");
     const alice = await addIdentity(activityId, captain, "Alice");
     const bob = await addIdentity(activityId, captain, "Bob");
-    const carol = await addIdentity(activityId, captain, "Carol");
     const view = await createPayment(activityId, alice, {
-      payers: [{ identityId: alice, amountCents: 30000 }],
+      payers: [
+        { identityId: alice, amountCents: 20000 },
+        { identityId: bob, amountCents: 10000 },
+      ],
       participants: [{ identityId: alice }, { identityId: bob }],
     });
     const paymentId = view.payments[0].id;
-    // Carol joins by herself, so her share counts as confirmed.
-    await post(`/api/activities/${activityId}/commands`, {
-      actorIdentityId: carol,
-      command: { type: "participant.set", paymentId, identityId: carol },
-    });
-    // Her arrival moved Alice's equal share, so Alice confirms again.
-    await confirm(activityId, alice, paymentId);
 
     const forced = await post(`/api/activities/${activityId}/commands`, {
       actorIdentityId: captain,
@@ -637,19 +632,42 @@ describe("closing the activity", () => {
     expect(forced.body.settlement.closed).toBe(true);
     expect(forced.body.settlement.pending).toEqual([]);
 
-    // Bob never responded: his registration is dropped and he counts as uninvolved.
+    // Bob was registered by Alice but never confirmed: the assignment stands.
     const payment = forced.body.payments.find((p: any) => p.id === paymentId);
-    expect(payment.payers.map((p: any) => p.identityId)).toEqual([alice]);
-    expect(payment.participants.map((p: any) => p.identityId).sort()).toEqual(
-      [alice, carol].sort(),
-    );
-    expect(payment.declinedBy).toContain(bob);
+    expect(payment.payers.map((p: any) => p.identityId)).toEqual([alice, bob]);
+    expect(payment.payers.every((p: any) => p.confirmed)).toBe(true);
+    expect(payment.participants.map((p: any) => p.identityId)).toEqual([alice, bob]);
+    expect(payment.participants.every((p: any) => p.confirmed)).toBe(true);
+    expect(payment.declinedBy).not.toContain(bob);
+
+    // The captain was never registered anywhere, so they count as uninvolved.
     expect(payment.declinedBy).toContain(captain);
 
-    // 300.00 split between the two confirmed participants.
+    // 300.00 split between the two participants; Bob paid 100.00 and owes 150.00.
     expect(forced.body.settlement.transfers).toEqual([
-      { from: carol, to: alice, amountCents: 15000 },
+      { from: bob, to: alice, amountCents: 5000 },
     ]);
+  });
+
+  it("counts strangers as not participating on a forced close", async () => {
+    const { activityId, identityId: captain } = await createActivity("hunter2");
+    const alice = await addIdentity(activityId, captain, "Alice");
+    const view = await createPayment(activityId, alice, {
+      participants: [{ identityId: alice }],
+    });
+    const paymentId = view.payments[0].id;
+
+    const forced = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: captain,
+      adminPassword: "hunter2",
+      command: { type: "activity.close", forced: true },
+    });
+    expect(forced.status).toBe(200);
+    const payment = forced.body.payments.find((p: any) => p.id === paymentId);
+    // Alice registered herself, so her participation stands; the captain did nothing.
+    expect(payment.participants.map((p: any) => p.identityId)).toEqual([alice]);
+    expect(payment.declinedBy).toEqual([captain]);
+    expect(forced.body.settlement.canSettle).toBe(true);
   });
 
   it("only the admin can close, and rollback can reopen", async () => {
