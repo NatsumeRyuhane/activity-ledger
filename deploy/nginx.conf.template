@@ -1,0 +1,66 @@
+# 活动账本反向代理模板
+#
+# docker compose 会把本文件挂到 nginx 官方镜像的 /etc/nginx/templates/，
+# 容器启动时用 envsubst 替换 ${APP_HOST} / ${APP_PORT} / ${SERVER_NAME}
+# （通过 NGINX_ENVSUBST_FILTER 限定，nginx 自身的 $host 等变量不受影响）。
+#
+# 若在宿主机 nginx 上直接使用，请先把上面三个变量手动替换成实际值，再 include。
+
+upstream ledger_app {
+    server ${APP_HOST}:${APP_PORT};
+    keepalive 16;
+}
+
+server {
+    listen 80;
+    server_name ${SERVER_NAME};
+
+    # 头像上传最大 10MB，这里留一点余量
+    client_max_body_size 12m;
+
+    gzip on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+
+    # 入口 HTML 不缓存，升级后立刻拿到新的资源指纹
+    location = / {
+        proxy_pass http://ledger_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        add_header Cache-Control "no-cache" always;
+    }
+
+    location = /index.html {
+        proxy_pass http://ledger_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        add_header Cache-Control "no-cache" always;
+    }
+
+    # 带内容指纹的静态资源可以长期缓存
+    location /assets/ {
+        proxy_pass http://ledger_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+    }
+
+    location / {
+        proxy_pass http://ledger_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+    }
+
+    # HTTPS 建议：用宿主机 nginx + certbot，或在本 server 块挂上证书后把 80 跳转到 443。
+    # location /.well-known/acme-challenge/ { root /var/www/certbot; }
+}

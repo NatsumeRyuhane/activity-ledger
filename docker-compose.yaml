@@ -1,0 +1,35 @@
+name: ledger
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ledger-app:local
+    restart: unless-stopped
+    # 以宿主机当前用户运行，保证 ./data 可写（manage.sh 会导出 APP_UID/APP_GID）
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+    environment:
+      PORT: "3000"
+      LEDGER_DB: /app/data/ledger.db
+    volumes:
+      - ./data:/app/data
+    expose:
+      - "3000"
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    volumes:
+      - ./deploy/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+    environment:
+      APP_HOST: app
+      APP_PORT: "3000"
+      SERVER_NAME: "${SERVER_NAME:-_}"
+      # 只替换这三个变量，保留 nginx 自身的 $host/$remote_addr 等
+      NGINX_ENVSUBST_FILTER: "APP_HOST|APP_PORT|SERVER_NAME"
