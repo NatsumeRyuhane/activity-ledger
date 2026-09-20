@@ -383,13 +383,16 @@ function buildEvent(
 
       if (isSelf) {
         // Members may only add themselves; shares and role changes belong to
-        // the payment creator or the activity admin.
-        requireMember(state, actorId);
-        if (existing) {
-          throw new AppError(403, "manager_only", "只有付款创建者可以修改参与信息");
-        }
-        if (command.shareCents !== undefined) {
-          throw new AppError(403, "manager_only", "分摊金额由付款创建者设置");
+        // the payment creator or the activity admin. Managers may edit their
+        // own entries too.
+        if (!isPaymentManager(row, state, actor, payment)) {
+          requireMember(state, actorId);
+          if (existing) {
+            throw new AppError(403, "manager_only", "只有付款创建者可以修改参与信息");
+          }
+          if (command.shareCents !== undefined) {
+            throw new AppError(403, "manager_only", "分摊金额由付款创建者设置");
+          }
         }
       } else {
         requirePaymentManager(row, state, actor, payment);
@@ -573,6 +576,19 @@ function requirePayment(state: LedgerState, paymentId: string): Payment {
   const payment = state.payments.find((item) => item.id === paymentId);
   if (!payment) throw new AppError(404, "payment_not_found", "付款不存在");
   return payment;
+}
+
+function isPaymentManager(
+  row: ActivityRow,
+  state: LedgerState,
+  actor: Actor,
+  payment: Payment,
+): boolean {
+  if (actor.identityId === payment.createdBy) return true;
+  const activity = requireState(state);
+  if (actor.identityId !== activity.creatorIdentityId) return false;
+  if (!row.adminPasswordHash || !actor.adminPassword) return false;
+  return verifyPassword(actor.adminPassword, row.adminPasswordHash);
 }
 
 function requirePaymentManager(

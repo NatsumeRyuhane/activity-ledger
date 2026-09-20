@@ -83,11 +83,11 @@ describe("replay", () => {
       { identityId: ALICE, amountCents: 30000, confirmed: true },
       { identityId: BOB, amountCents: 10000, confirmed: false },
     ]);
-    // Bob joining moved everyone's equal share, so both participant entries
-    // need a fresh confirmation even though nobody's paid amount changed.
+    // Bob joined by himself and Alice only edited her own records, so both
+    // participants keep their confirmation: derived share moves do not reset it.
     expect(state.payments[0].participants).toEqual([
-      { identityId: ALICE, confirmed: false },
-      { identityId: BOB, confirmed: false },
+      { identityId: ALICE, confirmed: true },
+      { identityId: BOB, confirmed: true },
     ]);
   });
 

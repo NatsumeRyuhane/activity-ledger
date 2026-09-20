@@ -93,7 +93,6 @@ export function fold(events: LedgerEvent[]): LedgerState {
         const payment = findPayment(state, payload.paymentId);
         if (!payment) break;
         const patch = payload.patch;
-        const previousSplitMode = payment.splitMode;
         if (patch.title !== undefined) payment.title = patch.title;
         if (patch.splitMode !== undefined) payment.splitMode = patch.splitMode;
         if (patch.paidAt !== undefined) {
@@ -103,10 +102,6 @@ export function fold(events: LedgerEvent[]): LedgerState {
         if (patch.description !== undefined) {
           if (patch.description === null) delete payment.description;
           else payment.description = patch.description;
-        }
-        // Switching the split mode changes everyone's share of the payment.
-        if (patch.splitMode !== undefined && patch.splitMode !== previousSplitMode) {
-          invalidateParticipants(payment, event.actorIdentityId);
         }
         break;
       }
@@ -135,10 +130,8 @@ export function fold(events: LedgerEvent[]): LedgerState {
           });
         }
         payment.declinedBy = payment.declinedBy.filter((id) => id !== payload.identityId);
-        // Changing what someone paid moves the equal split for every participant.
-        if (payment.splitMode === "equal") {
-          invalidateParticipants(payment, event.actorIdentityId);
-        }
+        // Only the payer whose amount changed has to confirm again; the equal
+        // split moving for everyone else is a derived change.
         break;
       }
 
@@ -147,9 +140,6 @@ export function fold(events: LedgerEvent[]): LedgerState {
         const payment = findPayment(state, payload.paymentId);
         if (!payment) break;
         payment.payers = payment.payers.filter((p) => p.identityId !== payload.identityId);
-        if (payment.splitMode === "equal") {
-          invalidateParticipants(payment, event.actorIdentityId);
-        }
         break;
       }
 
@@ -181,10 +171,6 @@ export function fold(events: LedgerEvent[]): LedgerState {
           });
         }
         payment.declinedBy = payment.declinedBy.filter((id) => id !== payload.identityId);
-        // Joining or leaving moves the equal split for the other participants.
-        if (payment.splitMode === "equal") {
-          invalidateParticipants(payment, event.actorIdentityId);
-        }
         break;
       }
 
@@ -216,9 +202,6 @@ export function fold(events: LedgerEvent[]): LedgerState {
         const payment = findPayment(state, payload.paymentId);
         if (!payment) break;
         payment.participants = payment.participants.filter((p) => p.identityId !== payload.identityId);
-        if (payment.splitMode === "equal") {
-          invalidateParticipants(payment, event.actorIdentityId);
-        }
         break;
       }
 
@@ -265,12 +248,3 @@ function findPayment(state: LedgerState, paymentId: string): Payment | undefined
   return state.payments.find((p) => p.id === paymentId);
 }
 
-/**
- * When the equal split moves, every participant's share changes, so everyone
- * but the person who made the change has to confirm their number again.
- */
-function invalidateParticipants(payment: Payment, actorIdentityId: string | null): void {
-  for (const participant of payment.participants) {
-    if (participant.identityId !== actorIdentityId) participant.confirmed = false;
-  }
-}
