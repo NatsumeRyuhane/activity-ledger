@@ -77,6 +77,10 @@ export function describeEvent(event: LedgerEvent, ctx: EventContext): string {
       }
       return `${actor} 将 ${who(payload.identityId)} 移出了付款${paymentTitle(payload.paymentId)}`;
     }
+    case "entry.declined": {
+      const payload = event.payload as import("./types").EntryDeclinedPayload;
+      return `${actor} 声明未参与付款${paymentTitle(payload.paymentId)}`;
+    }
     case "settings.updated": {
       const payload = event.payload as SettingsUpdatedPayload;
       if (payload.name !== undefined) return `${actor} 将活动更名为「${payload.name}」`;

@@ -60,30 +60,78 @@ export function computeShares(payment: Payment): Map<IdentityId, number> {
   return shares;
 }
 
-export interface UnconfirmedEntry {
+export type PendingRole = "payer" | "participant" | "unknown";
+
+export interface PendingConfirmation {
   identityId: IdentityId;
   paymentId: Payment["id"];
-  role: "payer" | "participant";
+  role: PendingRole;
 }
 
-export function unconfirmedEntries(payment: Payment): UnconfirmedEntry[] {
+/**
+ * Everything a person can be waiting on for one payment:
+ * - payer / participant: they are enrolled but have not confirmed the numbers
+ * - unknown: they have not reacted to this payment at all yet
+ */
+export function pendingConfirmationsFor(
+  payment: Payment,
+  memberIds: IdentityId[],
+): PendingConfirmation[] {
   if (payment.voided) return [];
-  const result: UnconfirmedEntry[] = [];
+
+  const roles = new Map<IdentityId, Set<PendingRole>>();
+  const involved = new Set<IdentityId>();
+  const addRole = (identityId: IdentityId, role: PendingRole) => {
+    involved.add(identityId);
+    const set = roles.get(identityId) ?? new Set<PendingRole>();
+    set.add(role);
+    roles.set(identityId, set);
+  };
+
   for (const payer of payment.payers) {
-    if (!payer.confirmed) {
-      result.push({ identityId: payer.identityId, paymentId: payment.id, role: "payer" });
-    }
+    involved.add(payer.identityId);
+    if (!payer.confirmed) addRole(payer.identityId, "payer");
   }
   for (const participant of payment.participants) {
-    if (!participant.confirmed) {
-      result.push({
-        identityId: participant.identityId,
-        paymentId: payment.id,
-        role: "participant",
-      });
+    involved.add(participant.identityId);
+    if (!participant.confirmed) addRole(participant.identityId, "participant");
+  }
+
+  const declined = new Set(payment.declinedBy);
+  for (const memberId of memberIds) {
+    if (!involved.has(memberId) && !declined.has(memberId)) {
+      addRole(memberId, "unknown");
+    }
+  }
+
+  const ordered: IdentityId[] = [...memberIds];
+  for (const identityId of roles.keys()) {
+    if (!ordered.includes(identityId)) ordered.push(identityId);
+  }
+
+  const result: PendingConfirmation[] = [];
+  const roleOrder: PendingRole[] = ["payer", "participant", "unknown"];
+  for (const identityId of ordered) {
+    const set = roles.get(identityId);
+    if (!set) continue;
+    for (const role of roleOrder) {
+      if (set.has(role)) result.push({ identityId, paymentId: payment.id, role });
     }
   }
   return result;
+}
+
+export type MemberResponseState = "involved" | "unconfirmed" | "declined" | "unknown";
+
+export function memberResponseState(
+  payment: Payment,
+  identityId: IdentityId,
+): MemberResponseState {
+  const involvement = involvementOf(payment, identityId);
+  if (involvement.isPayer || involvement.isParticipant) {
+    return involvement.needsConfirmation ? "unconfirmed" : "involved";
+  }
+  return payment.declinedBy.includes(identityId) ? "declined" : "unknown";
 }
 
 export interface Involvement {
@@ -113,16 +161,20 @@ export interface SettlementReport {
   transfers: { from: IdentityId; to: IdentityId; amountCents: number }[];
   includedPaymentIds: string[];
   excludedPaymentIds: string[];
-  unconfirmed: UnconfirmedEntry[];
+  /** Nothing can be settled until every member has responded to every payment. */
+  pending: PendingConfirmation[];
   canSettle: boolean;
   includedTotalCents: number;
 }
 
-export function buildSettlement(payments: Payment[]): SettlementReport {
+export function buildSettlement(
+  payments: Payment[],
+  memberIds: IdentityId[] = [],
+): SettlementReport {
   const balances = new Map<IdentityId, number>();
   const included: string[] = [];
   const excluded: string[] = [];
-  const unconfirmed: UnconfirmedEntry[] = [];
+  const pending: PendingConfirmation[] = [];
 
   const bump = (id: IdentityId, delta: number) => {
     balances.set(id, (balances.get(id) ?? 0) + delta);
@@ -137,7 +189,7 @@ export function buildSettlement(payments: Payment[]): SettlementReport {
     }
     included.push(payment.id);
     includedTotalCents += payerTotal(payment);
-    unconfirmed.push(...unconfirmedEntries(payment));
+    pending.push(...pendingConfirmationsFor(payment, memberIds));
     for (const payer of payment.payers) bump(payer.identityId, payer.amountCents);
     for (const [identityId, share] of computeShares(payment)) bump(identityId, -share);
   }
@@ -146,14 +198,14 @@ export function buildSettlement(payments: Payment[]): SettlementReport {
     .map(([identityId, balanceCents]) => ({ identityId, balanceCents }))
     .sort((a, b) => b.balanceCents - a.balanceCents);
 
-  const canSettle = unconfirmed.length === 0;
+  const canSettle = pending.length === 0;
 
   return {
     balances: sorted,
     transfers: canSettle ? settleBalances(sorted) : [],
     includedPaymentIds: included,
     excludedPaymentIds: excluded,
-    unconfirmed,
+    pending,
     canSettle,
     includedTotalCents,
   };

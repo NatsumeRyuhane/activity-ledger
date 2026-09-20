@@ -15,7 +15,7 @@ import { Badge, Button, Card, Input, Sheet } from "@/components/ui";
 import { useToast } from "@/components/toast-context";
 import { ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
-import { issuesOf, payerSummary, shareOf } from "@/lib/payment";
+import { issuesOf, myResponseState, payerSummary, shareOf } from "@/lib/payment";
 import type { RunCommand } from "@/hooks/useActivity";
 
 export function PaymentDetailSheet({
@@ -42,6 +42,7 @@ export function PaymentDetailSheet({
   const names = new Map(view.identities.map((identity) => [identity.id, identity]));
   const nameOf = (id: string) => names.get(id)?.name ?? "未知";
   const involvement = involvementOf(payment, me.id);
+  const responseState = myResponseState(payment, me.id);
   const isManager = payment.createdBy === me.id;
   const issues = issuesOf(payment);
   const totalCents = payerTotal(payment);
@@ -120,7 +121,7 @@ export function PaymentDetailSheet({
           ) : null}
         </div>
 
-        {!payment.voided && involvement.needsConfirmation ? (
+        {!payment.voided && responseState === "unconfirmed" ? (
           <Card className="border-amber-200 bg-amber-50 p-4">
             <p className="text-sm font-semibold text-amber-900">请确认你在该付款中的参与</p>
             <p className="mt-1 text-xs leading-relaxed text-amber-700">
@@ -145,6 +146,31 @@ export function PaymentDetailSheet({
               如果登记有误，请联系付款创建者或活动管理员处理，本人无法自行修改或退出。
             </p>
           </Card>
+        ) : null}
+
+        {!payment.voided && responseState === "unknown" ? (
+          <Card className="border-amber-200 bg-amber-50 p-4">
+            <p className="text-sm font-semibold text-amber-900">请确认你是否参与这笔付款</p>
+            <p className="mt-1 text-xs leading-relaxed text-amber-700">
+              你没有出现在付款人或参与人名单里。明确声明后结算才能进行；如果你其实参与了，可以在下方「我也付了一部分」或「我也参与」。
+            </p>
+            <div className="mt-3">
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  void exec({ type: "entry.decline", paymentId: payment.id }, "已声明未参与")
+                }
+              >
+                我没参与
+              </Button>
+            </div>
+          </Card>
+        ) : null}
+
+        {!payment.voided && responseState === "declined" ? (
+          <p className="rounded-xl bg-gray-50 px-3 py-2.5 text-xs leading-relaxed text-gray-500">
+            你已声明未参与这笔付款。如果你其实参与了，可以在下方加入。
+          </p>
         ) : null}
 
         {!payment.voided && issues.length > 0 ? (

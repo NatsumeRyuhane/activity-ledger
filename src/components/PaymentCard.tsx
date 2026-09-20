@@ -1,7 +1,7 @@
 import { formatYuan, payerTotal, type Payment } from "@shared/domain";
 import { IdentityBadge } from "@/components/IdentityBadge";
 import { Badge, Card } from "@/components/ui";
-import { payerSummary, unconfirmedCount, isIncomplete } from "@/lib/payment";
+import { payerSummary, pendingPeopleCount, isIncomplete } from "@/lib/payment";
 import { formatDateTime } from "@/lib/format";
 import type { ActivityView } from "@shared/domain";
 
@@ -16,7 +16,10 @@ export function PaymentCard({
 }) {
   const names = new Map(view.identities.map((identity) => [identity.id, identity]));
   const nameOf = (id: string) => names.get(id)?.name ?? "未知";
-  const pending = unconfirmedCount(payment);
+  const pending = pendingPeopleCount(
+    payment,
+    view.identities.map((identity) => identity.id),
+  );
   const incomplete = isIncomplete(payment);
   const visibleParticipants = payment.participants.slice(0, 4);
 
@@ -38,7 +41,7 @@ export function PaymentCard({
               {payment.voided ? <Badge>已作废</Badge> : null}
               {!payment.voided && incomplete ? <Badge tone="amber">待完善</Badge> : null}
               {!payment.voided && pending > 0 ? (
-                <Badge tone="amber">{pending} 项待确认</Badge>
+                <Badge tone="amber">{pending} 人待回应</Badge>
               ) : null}
             </div>
 

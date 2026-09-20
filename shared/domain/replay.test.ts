@@ -17,6 +17,7 @@ function basePayment(overrides: Partial<Payment> = {}): Payment {
       { identityId: ALICE, confirmed: true },
       { identityId: BOB, confirmed: true },
     ],
+    declinedBy: [],
     voided: false,
     ...overrides,
   };

@@ -1,13 +1,15 @@
 import {
   computeShares,
   formatYuan,
-  involvementOf,
+  memberResponseState,
   payerTotal,
+  pendingConfirmationsFor,
   validatePayment,
   type Identity,
   type Payment,
   type PaymentIssue,
-  type UnconfirmedEntry,
+  type PendingConfirmation,
+  type PendingRole,
 } from "@shared/domain";
 
 export function isIncomplete(payment: Payment): boolean {
@@ -27,8 +29,8 @@ export function payerSummary(payment: Payment, nameOf: (id: string) => string): 
   return `${payment.payers.length} 人共同付款 ${formatYuan(payerTotal(payment))}`;
 }
 
-export function participantCount(payment: Payment): number {
-  return payment.participants.length;
+export function totalOf(payment: Payment): number {
+  return payerTotal(payment);
 }
 
 export function shareOf(payment: Payment, identityId: string): number | undefined {
@@ -38,52 +40,59 @@ export function shareOf(payment: Payment, identityId: string): number | undefine
   return computeShares(payment).get(identityId);
 }
 
-export function unconfirmedCount(payment: Payment): number {
-  if (payment.voided) return 0;
-  return (
-    payment.payers.filter((p) => !p.confirmed).length +
-    payment.participants.filter((p) => !p.confirmed).length
-  );
+/** Members that still owe an answer (confirm participation, or decline it). */
+export function pendingPeopleCount(payment: Payment, memberIds: string[]): number {
+  return new Set(
+    pendingConfirmationsFor(payment, memberIds).map((entry) => entry.identityId),
+  ).size;
+}
+
+export function myResponseState(
+  payment: Payment,
+  identityId: string,
+): ReturnType<typeof memberResponseState> {
+  return memberResponseState(payment, identityId);
+}
+
+export function needsMyResponse(payment: Payment, identityId: string): boolean {
+  const state = memberResponseState(payment, identityId);
+  return state === "unconfirmed" || state === "unknown";
 }
 
 export interface Blocker {
   paymentId: string;
   paymentTitle: string;
-  names: string;
-  roles: string;
+  lines: string[];
 }
 
-/** Groups unconfirmed entries by (payment, person) into readable blockers. */
+/** Groups pending confirmations by payment into readable sentences. */
 export function settlementBlockers(
-  unconfirmed: UnconfirmedEntry[],
+  pending: PendingConfirmation[],
   paymentTitleOf: (id: string) => string,
   nameOf: (id: string) => string,
 ): Blocker[] {
-  const grouped = new Map<string, { paymentId: string; identityIds: Set<string>; roles: Set<string> }>();
-  for (const entry of unconfirmed) {
-    const key = entry.paymentId;
-    const bucket = grouped.get(key) ?? {
-      paymentId: entry.paymentId,
-      identityIds: new Set<string>(),
-      roles: new Set<string>(),
-    };
-    bucket.identityIds.add(entry.identityId);
-    bucket.roles.add(entry.role === "payer" ? "付款金额" : "分摊金额");
-    grouped.set(key, bucket);
+  const grouped = new Map<string, Map<string, Set<PendingRole>>>();
+  for (const entry of pending) {
+    const byIdentity = grouped.get(entry.paymentId) ?? new Map<string, Set<PendingRole>>();
+    const roles = byIdentity.get(entry.identityId) ?? new Set<PendingRole>();
+    roles.add(entry.role);
+    byIdentity.set(entry.identityId, roles);
+    grouped.set(entry.paymentId, byIdentity);
   }
 
-  return [...grouped.values()].map((bucket) => ({
-    paymentId: bucket.paymentId,
-    paymentTitle: paymentTitleOf(bucket.paymentId),
-    names: [...bucket.identityIds].map(nameOf).join("、"),
-    roles: [...bucket.roles].join("和"),
+  return [...grouped.entries()].map(([paymentId, byIdentity]) => ({
+    paymentId,
+    paymentTitle: paymentTitleOf(paymentId),
+    lines: [...byIdentity.entries()].map(([identityId, roles]) => {
+      if (roles.has("unknown")) return `「${nameOf(identityId)}」尚未确认是否参与`;
+      const parts: string[] = [];
+      if (roles.has("payer")) parts.push("付款金额");
+      if (roles.has("participant")) parts.push("分摊金额");
+      return `「${nameOf(identityId)}」的${parts.join("和")}尚未确认`;
+    }),
   }));
 }
 
 export function identityNameMap(identities: Identity[]): Map<string, string> {
   return new Map(identities.map((identity) => [identity.id, identity.name]));
-}
-
-export function needsMyConfirmation(payment: Payment, identityId: string): boolean {
-  return involvementOf(payment, identityId).needsConfirmation;
 }

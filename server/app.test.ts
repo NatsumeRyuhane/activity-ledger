@@ -44,6 +44,20 @@ async function addIdentity(activityId: string, actor: string, name: string) {
   return identity.id as string;
 }
 
+async function decline(activityId: string, actor: string, paymentId: string) {
+  return post(`/api/activities/${activityId}/commands`, {
+    actorIdentityId: actor,
+    command: { type: "entry.decline", paymentId },
+  });
+}
+
+async function confirm(activityId: string, actor: string, paymentId: string) {
+  return post(`/api/activities/${activityId}/commands`, {
+    actorIdentityId: actor,
+    command: { type: "entry.confirm", paymentId },
+  });
+}
+
 async function createPayment(
   activityId: string,
   actor: string,
@@ -102,7 +116,7 @@ describe("activities", () => {
 });
 
 describe("payments", () => {
-  it("creates payments, waits for confirmations and then settles", async () => {
+  it("creates payments, waits for every member to respond and then settles", async () => {
     const { activityId, identityId: captain } = await createActivity();
     const alice = await addIdentity(activityId, captain, "Alice");
     const bob = await addIdentity(activityId, captain, "Bob");
@@ -110,28 +124,64 @@ describe("payments", () => {
     const view = await createPayment(activityId, alice, {
       participants: [{ identityId: alice }, { identityId: bob }],
     });
+    const paymentId = view.payments[0].id;
 
     expect(view.payments).toHaveLength(1);
-    // Alice confirmed her own commit; Bob has not confirmed his participation yet.
+    // Bob is enrolled but has not confirmed; the captain never reacted at all.
     expect(view.settlement.canSettle).toBe(false);
     expect(view.settlement.transfers).toEqual([]);
-    expect(view.settlement.unconfirmed).toEqual([
-      { identityId: bob, paymentId: view.payments[0].id, role: "participant" },
+    expect(view.settlement.pending).toEqual([
+      { identityId: captain, paymentId, role: "unknown" },
+      { identityId: bob, paymentId, role: "participant" },
     ]);
 
-    const confirm = await post(`/api/activities/${activityId}/commands`, {
-      actorIdentityId: bob,
-      command: { type: "entry.confirm", paymentId: view.payments[0].id },
-    });
-    expect(confirm.status).toBe(200);
-    expect(confirm.body.settlement.canSettle).toBe(true);
-    expect(confirm.body.settlement.balances).toEqual([
+    const bobConfirm = await confirm(activityId, bob, paymentId);
+    expect(bobConfirm.status).toBe(200);
+    // The captain is still an open question, so nothing can be settled yet.
+    expect(bobConfirm.body.settlement.canSettle).toBe(false);
+
+    const captainDecline = await decline(activityId, captain, paymentId);
+    expect(captainDecline.status).toBe(200);
+    expect(captainDecline.body.payments[0].declinedBy).toEqual([captain]);
+    expect(captainDecline.body.settlement.canSettle).toBe(true);
+    expect(captainDecline.body.settlement.balances).toEqual([
       { identityId: alice, balanceCents: 15000 },
       { identityId: bob, balanceCents: -15000 },
     ]);
-    expect(confirm.body.settlement.transfers).toEqual([
+    expect(captainDecline.body.settlement.transfers).toEqual([
       { from: bob, to: alice, amountCents: 15000 },
     ]);
+  });
+
+  it("requires an explicit decline from uninvolved members", async () => {
+    const { activityId, identityId: captain } = await createActivity();
+    const alice = await addIdentity(activityId, captain, "Alice");
+    const view = await createPayment(activityId, alice, {
+      participants: [{ identityId: alice }],
+    });
+    const paymentId = view.payments[0].id;
+
+    // Someone who is enrolled cannot decline their way out.
+    const involved = await decline(activityId, alice, paymentId);
+    expect(involved.status).toBe(403);
+    expect(involved.body.error.code).toBe("already_involved");
+
+    const first = await decline(activityId, captain, paymentId);
+    expect(first.status).toBe(200);
+    const twice = await decline(activityId, captain, paymentId);
+    expect(twice.status).toBe(400);
+    expect(twice.body.error.code).toBe("already_declined");
+
+    // Joining later clears the decline and records a fresh confirmation.
+    const join = await post(`/api/activities/${activityId}/commands`, {
+      actorIdentityId: captain,
+      command: { type: "participant.set", paymentId, identityId: captain },
+    });
+    expect(join.status).toBe(200);
+    expect(join.body.payments[0].declinedBy).toEqual([]);
+    expect(
+      join.body.payments[0].participants.find((p: any) => p.identityId === captain),
+    ).toMatchObject({ confirmed: true });
   });
 
   it("treats manager edits as needing re-confirmation", async () => {
@@ -163,12 +213,13 @@ describe("payments", () => {
     expect(bobParticipant.confirmed).toBe(false);
     expect(edited.body.settlement.canSettle).toBe(false);
 
-    const again = await post(`/api/activities/${activityId}/commands`, {
-      actorIdentityId: bob,
-      command: { type: "entry.confirm", paymentId },
-    });
+    const again = await confirm(activityId, bob, paymentId);
     expect(again.status).toBe(200);
-    expect(again.body.settlement.canSettle).toBe(true);
+    expect(again.body.settlement.canSettle).toBe(false);
+
+    await decline(activityId, captain, paymentId);
+    const finalView = await get(`/api/activities/${activityId}`);
+    expect(finalView.body.settlement.canSettle).toBe(true);
   });
 
   it("resets other confirmations when the amount paid changes", async () => {
@@ -321,12 +372,11 @@ describe("payments", () => {
     // The creator's edit needs Bob's confirmation before transfers are computed.
     expect(assign.body.settlement.canSettle).toBe(false);
 
-    const confirm = await post(`/api/activities/${activityId}/commands`, {
-      actorIdentityId: bob,
-      command: { type: "entry.confirm", paymentId },
-    });
-    expect(confirm.status).toBe(200);
-    expect(confirm.body.settlement.transfers).toEqual([
+    const bobConfirm = await confirm(activityId, bob, paymentId);
+    expect(bobConfirm.status).toBe(200);
+    await decline(activityId, captain, paymentId);
+    const captainView = await get(`/api/activities/${activityId}`);
+    expect(captainView.body.settlement.transfers).toEqual([
       { from: bob, to: alice, amountCents: 10000 },
     ]);
   });

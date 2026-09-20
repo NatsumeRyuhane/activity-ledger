@@ -3,6 +3,7 @@ import {
   buildSettlement,
   computeShares,
   involvementOf,
+  memberResponseState,
   validatePayment,
   type Payment,
 } from "@shared/domain";
@@ -20,6 +21,7 @@ function payment(overrides: Partial<Payment> = {}): Payment {
       { identityId: "bob", confirmed: true },
       { identityId: "carol", confirmed: true },
     ],
+    declinedBy: [],
     voided: false,
     ...overrides,
   };
@@ -180,11 +182,67 @@ describe("buildSettlement", () => {
 
     expect(report.canSettle).toBe(false);
     expect(report.transfers).toEqual([]);
-    expect(report.unconfirmed).toEqual([
+    expect(report.pending).toEqual([
       { identityId: "carol", paymentId: "pay-1", role: "participant" },
     ]);
     // Balances are still shown so people can see where they stand.
     expect(report.balances.find((b) => b.identityId === "carol")?.balanceCents).toBe(-10000);
+  });
+
+  it("blocks transfers for members who never responded", () => {
+    const report = buildSettlement(
+      [
+        payment({
+          participants: [
+            { identityId: "alice", confirmed: true },
+            { identityId: "bob", confirmed: true },
+          ],
+        }),
+      ],
+      ["alice", "bob", "dave"],
+    );
+
+    expect(report.canSettle).toBe(false);
+    expect(report.pending).toEqual([
+      { identityId: "dave", paymentId: "pay-1", role: "unknown" },
+    ]);
+  });
+
+  it("accepts an explicit decline as an answer", () => {
+    const report = buildSettlement(
+      [
+        payment({
+          declinedBy: ["dave"],
+          participants: [
+            { identityId: "alice", confirmed: true },
+            { identityId: "bob", confirmed: true },
+          ],
+        }),
+      ],
+      ["alice", "bob", "dave"],
+    );
+
+    expect(report.canSettle).toBe(true);
+    expect(report.pending).toEqual([]);
+    expect(report.transfers.length).toBeGreaterThan(0);
+  });
+
+  it("keeps tracking someone who joined after declining", () => {
+    const report = buildSettlement(
+      [
+        payment({
+          declinedBy: [],
+          participants: [
+            { identityId: "alice", confirmed: true },
+            { identityId: "dave", confirmed: false },
+          ],
+        }),
+      ],
+      ["alice", "dave"],
+    );
+    expect(report.pending).toEqual([
+      { identityId: "dave", paymentId: "pay-1", role: "participant" },
+    ]);
   });
 
   it("reports unconfirmed payers too", () => {
@@ -194,25 +252,46 @@ describe("buildSettlement", () => {
       }),
     ]);
     expect(report.canSettle).toBe(false);
-    expect(report.unconfirmed).toContainEqual({
+    expect(report.pending).toContainEqual({
       identityId: "alice",
       paymentId: "pay-1",
       role: "payer",
     });
   });
 
-  it("ignores unconfirmed entries of voided payments", () => {
-    const report = buildSettlement([
-      payment({
-        voided: true,
-        participants: [
-          { identityId: "alice", confirmed: true },
-          { identityId: "bob", confirmed: false },
-        ],
-      }),
-    ]);
+  it("ignores unanswered states of voided payments", () => {
+    const report = buildSettlement(
+      [
+        payment({
+          voided: true,
+          participants: [
+            { identityId: "alice", confirmed: true },
+            { identityId: "bob", confirmed: false },
+          ],
+        }),
+      ],
+      ["alice", "bob", "dave"],
+    );
     expect(report.canSettle).toBe(true);
-    expect(report.unconfirmed).toEqual([]);
+    expect(report.pending).toEqual([]);
+  });
+
+  it("classifies each member's response state", () => {
+    const base = payment();
+    expect(memberResponseState(base, "alice")).toBe("involved");
+    expect(
+      memberResponseState(
+        payment({
+          participants: [
+            { identityId: "alice", confirmed: true },
+            { identityId: "bob", confirmed: false },
+          ],
+        }),
+        "bob",
+      ),
+    ).toBe("unconfirmed");
+    expect(memberResponseState(payment({ declinedBy: ["dave"] }), "dave")).toBe("declined");
+    expect(memberResponseState(base, "dave")).toBe("unknown");
   });
 
   it("describes a person's involvement in a payment", () => {

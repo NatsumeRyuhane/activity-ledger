@@ -7,7 +7,7 @@ import { PaymentCard } from "@/components/PaymentCard";
 import { PaymentDetailSheet } from "@/components/PaymentDetailSheet";
 import { PaymentFormSheet, type PaymentFormValue } from "@/components/PaymentFormSheet";
 import { Card, EmptyState } from "@/components/ui";
-import { needsMyConfirmation } from "@/lib/payment";
+import { needsMyResponse } from "@/lib/payment";
 import { parseLocalDate } from "@/lib/format";
 import type { ActivityController } from "@/hooks/useActivity";
 
@@ -31,7 +31,7 @@ export function PaymentsTab({ controller }: { controller: ActivityController }) 
   if (!view || !me) return null;
 
   const myPending = view.payments.filter(
-    (payment) => !payment.voided && needsMyConfirmation(payment, me.id),
+    (payment) => !payment.voided && needsMyResponse(payment, me.id),
   );
   const incompleteCount = view.settlement.excludedPaymentIds.length;
   const detailPayment = detailId ? view.payments.find((p) => p.id === detailId) : undefined;
@@ -129,7 +129,7 @@ export function PaymentsTab({ controller }: { controller: ActivityController }) 
       {myPending.length > 0 ? (
         <Card className="border-amber-200 bg-amber-50 p-4">
           <p className="text-sm font-semibold text-amber-900">
-            有 {myPending.length} 笔付款等待你确认
+            有 {myPending.length} 笔付款等待你回应
           </p>
           <div className="mt-2 space-y-1.5">
             {myPending.map((payment) => (
@@ -140,11 +140,13 @@ export function PaymentsTab({ controller }: { controller: ActivityController }) 
                 className="flex w-full items-center justify-between gap-2 rounded-lg bg-white/70 px-3 py-2 text-left"
               >
                 <span className="truncate text-sm text-gray-800">{payment.title}</span>
-                <span className="shrink-0 text-xs font-medium text-teal-600">去确认 →</span>
+                <span className="shrink-0 text-xs font-medium text-teal-600">去回应 →</span>
               </button>
             ))}
           </div>
-          <p className="mt-2 text-xs text-amber-700">全部确认后，才能生成结算转账方案。</p>
+          <p className="mt-2 text-xs text-amber-700">
+            参与的人确认金额，没参与的人明确说「我没参与」，全部回应后才会生成转账方案。
+          </p>
         </Card>
       ) : null}
 

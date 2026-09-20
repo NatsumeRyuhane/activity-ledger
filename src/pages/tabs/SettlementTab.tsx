@@ -16,7 +16,7 @@ export function SettlementTab({ controller }: { controller: ActivityController }
   const identityOf = (id: string) => identities.find((identity) => identity.id === id);
   const titles = new Map(payments.map((payment) => [payment.id, payment.title]));
   const blockers = settlementBlockers(
-    settlement.unconfirmed,
+    settlement.pending,
     (id) => titles.get(id) ?? "付款",
     nameOf,
   );
@@ -41,15 +41,20 @@ export function SettlementTab({ controller }: { controller: ActivityController }
       {!settlement.canSettle ? (
         <Card className="border-amber-200 bg-amber-50 p-4">
           <p className="text-sm font-semibold text-amber-900">暂时无法计算转账方案</p>
-          <ul className="mt-2 list-disc space-y-1 pl-4 text-xs leading-relaxed text-amber-800">
+          <ul className="mt-2 space-y-1.5 text-xs leading-relaxed text-amber-800">
             {blockers.map((blocker) => (
               <li key={blocker.paymentId}>
-                「{blocker.names}」在付款「{blocker.paymentTitle}」中的{blocker.roles}尚未确认
+                <p className="font-medium">付款「{blocker.paymentTitle}」</p>
+                <ul className="mt-0.5 list-disc space-y-0.5 pl-4">
+                  {blocker.lines.map((line, index) => (
+                    <li key={index}>{line}</li>
+                  ))}
+                </ul>
               </li>
             ))}
           </ul>
           <p className="mt-2 text-xs text-amber-700">
-            待所有人确认后，这里会自动生成最少转账方案。
+            每个成员都必须在这笔付款里表态——参与就确认金额，没参与就明确说「我没参与」。
           </p>
         </Card>
       ) : null}

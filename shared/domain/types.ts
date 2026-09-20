@@ -43,6 +43,8 @@ export interface Payment {
   createdAt: number;
   payers: Payer[];
   participants: Participant[];
+  /** Identities who explicitly stated they are not part of this payment. */
+  declinedBy: IdentityId[];
   voided: boolean;
 }
 
@@ -63,6 +65,7 @@ export type LedgerEventType =
   | "participant.set"
   | "participant.removed"
   | "entry.confirmed"
+  | "entry.declined"
   | "settings.updated"
   | "settings.password_changed"
   | "rollback";
@@ -125,6 +128,11 @@ export interface EntryConfirmedPayload {
   identityId: IdentityId;
 }
 
+export interface EntryDeclinedPayload {
+  paymentId: PaymentId;
+  identityId: IdentityId;
+}
+
 export interface SettingsUpdatedPayload {
   name?: string;
   description?: string | null;
@@ -146,6 +154,7 @@ export type LedgerEventPayload =
   | ParticipantSetPayload
   | ParticipantRemovedPayload
   | EntryConfirmedPayload
+  | EntryDeclinedPayload
   | SettingsUpdatedPayload
   | RollbackPayload;
 

@@ -122,6 +122,7 @@ export function fold(events: LedgerEvent[]): LedgerState {
             confirmed,
           });
         }
+        payment.declinedBy = payment.declinedBy.filter((id) => id !== payload.identityId);
         // Changing what someone paid moves the equal split for every participant.
         if (payment.splitMode === "equal") {
           invalidateParticipants(payment, event.actorIdentityId);
@@ -167,9 +168,20 @@ export function fold(events: LedgerEvent[]): LedgerState {
             confirmed,
           });
         }
+        payment.declinedBy = payment.declinedBy.filter((id) => id !== payload.identityId);
         // Joining or leaving moves the equal split for the other participants.
         if (payment.splitMode === "equal") {
           invalidateParticipants(payment, event.actorIdentityId);
+        }
+        break;
+      }
+
+      case "entry.declined": {
+        const payload = event.payload as import("./types").EntryDeclinedPayload;
+        const payment = findPayment(state, payload.paymentId);
+        if (!payment) break;
+        if (!payment.declinedBy.includes(payload.identityId)) {
+          payment.declinedBy.push(payload.identityId);
         }
         break;
       }
@@ -223,6 +235,7 @@ function normalizePayment(payment: Payment): Payment {
     ...payment,
     payers: payment.payers.map((p) => ({ ...p, confirmed: p.confirmed ?? false })),
     participants: payment.participants.map((p) => ({ ...p, confirmed: p.confirmed ?? false })),
+    declinedBy: payment.declinedBy ?? [],
     voided: payment.voided ?? false,
   };
 }

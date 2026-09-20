@@ -166,6 +166,7 @@ function buildEvent(
             : {}),
           confirmed: participant.identityId === actorId,
         })),
+        declinedBy: [],
         voided: false,
       };
       return { ...base, type: "payment.created", payload: { payment } };
@@ -287,6 +288,28 @@ function buildEvent(
       };
     }
 
+    case "entry.decline": {
+      const payment = requirePayment(state, command.paymentId);
+      requireMember(state, actorId);
+      if (payment.voided) throw new AppError(400, "already_voided", "这笔付款已经作废");
+      const involvement = involvementOf(payment, actorId);
+      if (involvement.isPayer || involvement.isParticipant) {
+        throw new AppError(
+          403,
+          "already_involved",
+          "你已被登记在这笔付款里，请联系付款创建者或活动管理员处理",
+        );
+      }
+      if (payment.declinedBy.includes(actorId)) {
+        throw new AppError(400, "already_declined", "你已经声明未参与这笔付款");
+      }
+      return {
+        ...base,
+        type: "entry.declined",
+        payload: { paymentId: payment.id, identityId: actorId },
+      };
+    }
+
     case "rollback": {
       requireAdmin(row, state, actor);
       const events = store.loadEvents(row.id);
@@ -345,7 +368,10 @@ export function buildView(store: EventStore, row: ActivityRow): ActivityView {
     activity: { ...activity, hasPassword: row.adminPasswordHash !== null },
     identities: state.identities,
     payments: state.payments,
-    settlement: buildSettlement(state.payments),
+    settlement: buildSettlement(
+      state.payments,
+      state.identities.map((identity) => identity.id),
+    ),
     events: events.map((event) => ({ ...event, voided: voided.has(event.seq) })),
     headSeq: store.maxSeq(row.id),
   };
