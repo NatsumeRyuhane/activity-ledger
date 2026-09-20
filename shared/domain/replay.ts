@@ -79,7 +79,19 @@ export function fold(events: LedgerEvent[]): LedgerState {
       case "payment.updated": {
         const payload = event.payload as import("./types").PaymentUpdatedPayload;
         const payment = findPayment(state, payload.paymentId);
-        if (payment) Object.assign(payment, payload.patch);
+        if (!payment) break;
+        const patch = payload.patch;
+        if (patch.title !== undefined) payment.title = patch.title;
+        if (patch.amountCents !== undefined) payment.amountCents = patch.amountCents;
+        if (patch.splitMode !== undefined) payment.splitMode = patch.splitMode;
+        if (patch.paidAt !== undefined) {
+          if (patch.paidAt === null) delete payment.paidAt;
+          else payment.paidAt = patch.paidAt;
+        }
+        if (patch.description !== undefined) {
+          if (patch.description === null) delete payment.description;
+          else payment.description = patch.description;
+        }
         break;
       }
 
@@ -113,16 +125,14 @@ export function fold(events: LedgerEvent[]): LedgerState {
         const payment = findPayment(state, payload.paymentId);
         if (!payment) break;
         const existing = payment.participants.find((p) => p.identityId === payload.identityId);
-        const shareCents = payment.splitMode === "custom" ? (payload.shareCents ?? 0) : undefined;
-        if (existing) {
-          if (shareCents === undefined) delete existing.shareCents;
-          else existing.shareCents = shareCents;
+        if (payment.splitMode === "custom") {
+          const shareCents = payload.shareCents ?? existing?.shareCents ?? 0;
+          if (existing) existing.shareCents = shareCents;
+          else payment.participants.push({ identityId: payload.identityId, shareCents });
+        } else if (existing) {
+          delete existing.shareCents;
         } else {
-          payment.participants.push(
-            shareCents === undefined
-              ? { identityId: payload.identityId }
-              : { identityId: payload.identityId, shareCents },
-          );
+          payment.participants.push({ identityId: payload.identityId });
         }
         break;
       }
@@ -139,7 +149,10 @@ export function fold(events: LedgerEvent[]): LedgerState {
         const payload = event.payload as import("./types").SettingsUpdatedPayload;
         if (!state.activity) break;
         if (payload.name !== undefined) state.activity.name = payload.name;
-        if (payload.description !== undefined) state.activity.description = payload.description;
+        if (payload.description !== undefined) {
+          if (payload.description === null) delete state.activity.description;
+          else state.activity.description = payload.description;
+        }
         break;
       }
 

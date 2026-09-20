@@ -78,9 +78,13 @@ export interface PaymentCreatedPayload {
   payment: Payment;
 }
 
-export type PaymentPatch = Partial<
-  Pick<Payment, "title" | "amountCents" | "paidAt" | "description" | "splitMode">
->;
+export interface PaymentPatch {
+  title?: string;
+  amountCents?: number;
+  paidAt?: string | null;
+  description?: string | null;
+  splitMode?: SplitMode;
+}
 
 export interface PaymentUpdatedPayload {
   paymentId: PaymentId;
@@ -115,7 +119,7 @@ export interface ParticipantRemovedPayload {
 
 export interface SettingsUpdatedPayload {
   name?: string;
-  description?: string;
+  description?: string | null;
 }
 
 export interface RollbackPayload {
@@ -134,8 +138,7 @@ export type LedgerEventPayload =
   | ParticipantSetPayload
   | ParticipantRemovedPayload
   | SettingsUpdatedPayload
-  | RollbackPayload
-  | Record<string, never>;
+  | RollbackPayload;
 
 export interface LedgerEvent<P = LedgerEventPayload> {
   seq: number;
