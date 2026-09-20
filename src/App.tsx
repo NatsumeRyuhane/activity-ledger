@@ -1,9 +1,16 @@
 import { Route, Routes } from "react-router-dom";
+import { ToastProvider } from "@/components/Toast";
+import HomePage from "@/pages/HomePage";
+import ActivityPage from "@/pages/ActivityPage";
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<div className="p-4">活动账本</div>} />
-    </Routes>
+    <ToastProvider>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/a/:id" element={<ActivityPage />} />
+        <Route path="*" element={<HomePage />} />
+      </Routes>
+    </ToastProvider>
   );
 }

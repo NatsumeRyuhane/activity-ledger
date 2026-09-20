@@ -89,6 +89,9 @@ export const commandSchema = z.discriminatedUnion("type", [
     description: z.string().trim().max(200).nullable().optional(),
   }),
   z.object({
+    type: z.literal("admin.verify"),
+  }),
+  z.object({
     type: z.literal("admin.setPassword"),
     newPassword: z.string().min(4, "密码至少 4 位").max(128),
   }),

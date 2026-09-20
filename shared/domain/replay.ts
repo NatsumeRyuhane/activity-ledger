@@ -81,6 +81,8 @@ export function fold(events: LedgerEvent[]): LedgerState {
         const payment = findPayment(state, payload.paymentId);
         if (!payment) break;
         const patch = payload.patch;
+        const previousAmountCents = payment.amountCents;
+        const previousSplitMode = payment.splitMode;
         if (patch.title !== undefined) payment.title = patch.title;
         if (patch.amountCents !== undefined) payment.amountCents = patch.amountCents;
         if (patch.splitMode !== undefined) payment.splitMode = patch.splitMode;
@@ -94,7 +96,11 @@ export function fold(events: LedgerEvent[]): LedgerState {
         }
         // Changing the total or the split mode invalidates previous
         // confirmations of everyone but the person who made the change.
-        if (patch.amountCents !== undefined || patch.splitMode !== undefined) {
+        const totalChanged =
+          patch.amountCents !== undefined && patch.amountCents !== previousAmountCents;
+        const splitChanged =
+          patch.splitMode !== undefined && patch.splitMode !== previousSplitMode;
+        if (totalChanged || splitChanged) {
           for (const payer of payment.payers) {
             if (payer.identityId !== event.actorIdentityId) payer.confirmed = false;
           }

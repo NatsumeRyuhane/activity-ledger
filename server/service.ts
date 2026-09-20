@@ -107,7 +107,7 @@ export function applyCommand(
   const events = store.loadEvents(activityId);
   const state = replay(events);
   const event = buildEvent(store, row, state, actor, command);
-  store.append(activityId, [event]);
+  if (event) store.append(activityId, [event]);
 
   return buildView(store, row);
 }
@@ -118,7 +118,7 @@ function buildEvent(
   state: LedgerState,
   actor: Actor,
   command: Command,
-): NewEvent {
+): NewEvent | null {
   const activity = requireState(state);
   const now = Date.now();
   const actorId = actor.identityId;
@@ -302,6 +302,11 @@ function buildEvent(
           ...(command.description !== undefined ? { description: command.description } : {}),
         },
       };
+    }
+
+    case "admin.verify": {
+      requireAdmin(row, state, actor);
+      return null;
     }
 
     case "admin.setPassword": {

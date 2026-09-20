@@ -11,6 +11,13 @@ import {
 
 type Status = "loading" | "ready" | "notfound" | "error";
 
+export type RunCommand = (
+  command: CommandInput,
+  options?: { adminPassword?: string },
+) => Promise<ActivityView>;
+
+export type ActivityController = ReturnType<typeof useActivity>;
+
 export function useActivity(activityId: string) {
   const [view, setView] = useState<ActivityView | null>(null);
   const [status, setStatus] = useState<Status>("loading");
@@ -74,8 +81,8 @@ export function useActivity(activityId: string) {
     [activityId],
   );
 
-  const run = useCallback(
-    async (command: CommandInput, options?: { adminPassword?: string }) => {
+  const run: RunCommand = useCallback(
+    async (command, options) => {
       if (!identityId) {
         throw new ApiError("unknown_identity", "请先选择你的身份", 403);
       }
